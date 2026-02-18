@@ -1,48 +1,74 @@
 # ordergrad
 
-Exact, fast computation of **expected order statistics** under **uniform sampling without replacement**:
+`ordergrad` implements fast order-statistics transforms used in the rank-note setting (`docs/ranknote.pdf`) with two complementary viewpoints:
 
-- You have a population of `N` values `x[0..N-1]`.
-- You sample a subset `S` of size `k` uniformly at random (no replacement).
-- Let `X_(1:k) <= ... <= X_(k:k)` be the **order statistics** of the selected values `{x[i] : i in S}`.
+1. **Known distribution regime (`r, p`)** (sampling with replacement): compute exact quantities for the population distribution.
+2. **Batch regime (`N` observed samples)** (subset sampling without replacement inside a batch): compute exact batch-level subset expectations that act as **unbiased estimators** (in expectation over i.i.d. batches) of the known-`(r,p)` targets.
 
-This library computes (exactly, up to floating-point precision):
+Implemented with a shared API in **NumPy**, **PyTorch**, and **JAX**.
 
-1. **Unconditional** expectations: `E[X_(j:k)]` for all `j=1..k`
-2. **Conditional inclusion** expectations: `E[X_(j:k) | i ∈ S]` for all items `i`
-3. **Leave-one-out** expectations: `E[X_(j:k)]` when sampling from the population with item `i` removed
+> Reference derivations and motivation: `docs/ranknote.pdf`.
 
-and wraps these into a convenient **reward transform** for any **L-statistic**
+---
 
-\[
-T(S) = \sum_{j=1}^k a_j X_{(j:k)}.
-\]
+## What is computed
 
-Implemented in **NumPy**, **PyTorch**, and **JAX** with the same API.
+Given an order-statistic index `j` and subset/sample size parameter `k`:
 
-> Reference note / derivations: see `docs/ranknote.pdf`.
+- `v_j`: unconditional expected order statistic,
+- `q`: inclusion-conditioned expected order statistic,
+- `a = q - v`: advantage-style difference.
 
-
-## Key identity (unconditional weights)
-
-Let `x_(1) <= ... <= x_(N)` be the sorted population values.
+For L-statistics with weights `alpha`:
 
 \[
-\mathbb{E}[X_{(j:k)}] = \sum_{m=1}^N x_{(m)} W_{m,j},
-\qquad
-W_{m,j} = \frac{\binom{m-1}{j-1}\binom{N-m}{k-j}}{\binom{N}{k}}.
+T = \sum_j \alpha_j X_{(j:k)},
 \]
 
-For fixed `(N, k)`, the matrix `W` depends only on combinatorics, so we precompute it once.
-Then each evaluation is: **sort** `x` and do a single **matrix–vector multiply**.
+the same transforms are exposed in scalar/per-item form.
 
-The conditional-inclusion and leave-one-out computations are also vectorized and run in `O(Nk)`
-(using only elementwise multiplies and prefix/suffix sums).
+### Important interpretation
 
+For the **batch APIs** (`expected_orderstats`, `expected_orderstats_inclusion`, `expected_orderstats_leave_one_out`, `...advantage`), the library computes these quantities **exactly for the realized batch**.  
+When the batch itself is sampled i.i.d. from an underlying arm distribution, these batch quantities are the unbiased-estimation objects discussed in the note.
+
+---
+
+## Regimes
+
+### A) Known `(r, p)` regime (with replacement)
+
+- `r[b]`: fixed reward value of arm `b`
+- `p[b]`: arm probability (nonnegative, sums to 1)
+- draws are i.i.d. with replacement
+
+Use:
+
+- `expected_orderstats_known_rp(r, p)`
+- `expected_orderstats_inclusion_known_rp(r, p)`
+- `expected_orderstats_advantage_known_rp(r, p)`
+- and L-stat counterparts.
+
+These are exact (up to floating-point error) for the specified `(r,p)` model.
+
+### B) Batch regime (`N` observed rewards)
+
+- `x[0..N-1]` is a realized batch
+- subset operations are without replacement within that batch
+
+Use:
+
+- `expected_orderstats(x)`
+- `expected_orderstats_inclusion(x)`
+- `expected_orderstats_leave_one_out(x)`
+- `expected_orderstats_advantage(x)`
+- and L-stat counterparts.
+
+These are exact for the realized batch and are the estimator objects used in the note’s unbiasedness/equivalence results.
+
+---
 
 ## Installation
-
-This repo is a standard Python package.
 
 ```bash
 pip install -e .
@@ -51,23 +77,18 @@ pip install -e .
 Optional backends:
 
 ```bash
-pip install -e ".[torch]"   # PyTorch backend
-pip install -e ".[jax]"     # JAX backend
-pip install -e ".[dev]"     # pytest
+pip install -e ".[torch]"
+pip install -e ".[jax]"
+pip install -e ".[dev]"
 ```
 
-### Important: optional imports
+`import ordergrad` requires only NumPy. Torch/JAX are imported lazily when those backends are requested.
 
-`ordergrad` is designed so that you can install **only what you use**:
-
-- `import ordergrad` requires **NumPy only**
-- PyTorch is imported only if you import `ordergrad.torch_backend` (or `get_backend("torch")`)
-- JAX is imported only if you import `ordergrad.jax_backend` (or `get_backend("jax")`)
-
+---
 
 ## Quick start
 
-### NumPy
+### NumPy (batch regime)
 
 ```python
 import numpy as np
@@ -77,114 +98,84 @@ N, k = 30, 8
 os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
 
 x = np.random.randn(N)
+a = np.ones(os.k) / os.k  # os.k is floor(k) when k is real
 
-E = os.expected_orderstats(x)                # (k,)
-E_inc = os.expected_orderstats_inclusion(x)  # (N,k)
-E_loo = os.expected_orderstats_leave_one_out(x)  # (N,k)
+E = os.expected_orderstats(x)                      # (os.k,)
+E_inc = os.expected_orderstats_inclusion(x)        # (N, os.k)
+E_loo = os.expected_orderstats_leave_one_out(x)    # (N, os.k)
+adv = os.expected_orderstats_advantage(x)          # (N, os.k)
 
-# L-statistic: T(S) = sum_j a_j X_(j:k)
-a = np.ones(k) / k
-
-scalar = os.expected_lstat(x, a)                 # scalar
-per_item_inc = os.expected_lstat_inclusion(x, a) # (N,)
-per_item_loo = os.expected_lstat_leave_one_out(x, a) # (N,)
-
-# A common “advantage-style” transform:
-adv = os.expected_lstat_advantage(x, a)          # (N,) == per_item_inc - per_item_loo
+l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 ```
 
-### PyTorch
+### NumPy (known `(r,p)` regime)
 
 ```python
-import torch
-from ordergrad import torch_backend
+import numpy as np
+from ordergrad import numpy_backend
 
-N, k = 30, 8
-os = torch_backend.OrderStatTransform.precompute(N, k, dtype=torch.float64)
+# N only configures precomputed batch matrices; known-(r,p) calls can still be used directly.
+os = numpy_backend.OrderStatTransform.precompute(32, 5, dtype=np.float64)
 
-x = torch.randn(N, dtype=torch.float64, requires_grad=True)
-a = torch.ones(k, dtype=torch.float64) / k
+r = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
+p = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
+a = np.array([0.2, -0.1, 0.4, 0.3, 0.2], dtype=np.float64)
 
-loss = os.expected_lstat(x, a)
-loss.backward()
-
-# Piecewise-constant “order-statistics gradient” (away from ties)
-print(x.grad)
+v = os.expected_orderstats_known_rp(r, p)                 # (os.k,)
+q = os.expected_orderstats_inclusion_known_rp(r, p)        # (m, os.k)
+adv = os.expected_orderstats_advantage_known_rp(r, p)      # (m, os.k)
+l_adv = os.expected_lstat_advantage_known_rp(r, p, a)      # (m,)
 ```
 
-### JAX
+Torch/JAX provide matching methods.
 
-```python
-import jax
-import jax.numpy as jnp
-from ordergrad import jax_backend
-
-jax.config.update("jax_enable_x64", True)
-
-N, k = 30, 8
-os = jax_backend.OrderStatTransform.precompute(N, k, dtype=jnp.float64)
-
-x = jnp.arange(N, dtype=jnp.float64)
-a = jnp.ones(k, dtype=jnp.float64) / k
-
-g = jax.grad(lambda z: os.expected_lstat(z, a))(x)
-print(g)
-```
-
+---
 
 ## API notes
 
-Each backend exposes an `OrderStatTransform` class with:
+Each backend exposes `OrderStatTransform` with:
 
-- `precompute(N, k, ..., compute_dense_matrices=False)` where `k` may be integer or real; output order-stat dimension is `floor(k)`
-- `expected_orderstats(x) -> (k,)`
-- `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
-- `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)
-- `expected_lstat(x, a) -> scalar`
-- `expected_lstat_inclusion(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
-- `expected_lstat_leave_one_out(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
-- `expected_lstat_advantage(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
-- `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto") -> (N,k)`
-- `expected_orderstats_known_rp(r, p) -> (k)`, `expected_orderstats_inclusion_known_rp(r, p) -> (m,k)`, and `expected_orderstats_advantage_known_rp(r, p) -> (m,k)` for the known `(r,p)` with-replacement regime
-- `with_lstat_weights(a)` and `precompute_lstat(N, k, a, ...)` for preweighted L-stat transforms
+- `precompute(N, k, ..., compute_dense_matrices=False)`
+  - `k` may be integer or real
+  - internal order-stat dimension is `floor(k)` and available as `transform.k`
+- batch-regime methods:
+  - `expected_orderstats(x)`
+  - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto")`
+  - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto")`
+  - `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto")`
+  - L-stat analogues (`expected_lstat*`)
+- known-`(r,p)` methods:
+  - `expected_orderstats_known_rp(r, p)`
+  - `expected_orderstats_inclusion_known_rp(r, p)`
+  - `expected_orderstats_advantage_known_rp(r, p)`
+  - L-stat analogues (`expected_lstat*_known_rp`)
 
-When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can run in the explicit pipeline:
-`sort -> matmul -> revert sort`. The original prefix/suffix efficient methods remain available via `method="efficient"`.
+When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can use explicit dense matmul paths; otherwise efficient prefix/suffix implementations are used.
 
+---
 
 ## Testing
 
 ```bash
-pytest
+pytest -q
 ```
 
-Run backend-specific tests in separate environments:
+Backend-specific examples:
 
 ```bash
-# NumPy-only checks
 pytest -m "not torch and not jax"
-
-# PyTorch-only checks
 pytest -m torch
-# or: pytest tests/test_torch_backend.py
-
-# JAX-only checks
 pytest -m jax
-# or: pytest tests/test_jax_backend.py
 ```
 
+---
 
-## Performance notes
+## Limitations / assumptions
 
-- Precomputation cost is paid once per `(N, k)`.
-- Memory is dominated by storing the weight matrices (roughly `O(Nk)`).
-- NumPy precompute supports `chunk_size=` to reduce temporary peak memory.
-
-## Limitations
-
-- Assumes **uniform** subset sampling without replacement.
-- Gradients w.r.t. `x` are only well-defined **away from ties** (stable sort is used for deterministic behavior at ties).
+- Known-`(r,p)` formulas assume i.i.d. sampling with replacement from the specified discrete distribution.
+- Batch transforms assume uniform subset sampling without replacement within the realized batch.
+- Gradients wrt values are piecewise-constant away from ties (stable sorting is used).
 
 ## License
 
-MIT.
+MIT
