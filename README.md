@@ -136,7 +136,7 @@ print(g)
 
 Each backend exposes an `OrderStatTransform` class with:
 
-- `precompute(N, k, ..., compute_dense_matrices=False, kappa=None)` (`kappa` is optional and can be real-valued on all backends)
+- `precompute(N, k, ..., compute_dense_matrices=False)` where `k` may be integer or real; output order-stat dimension is `floor(k)`
 - `expected_orderstats(x) -> (k,)`
 - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
 - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)
@@ -145,7 +145,7 @@ Each backend exposes an `OrderStatTransform` class with:
 - `expected_lstat_leave_one_out(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
 - `expected_lstat_advantage(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
 - `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto") -> (N,k)`
-- `expected_orderstats_known_rank_position(x, p) -> (N,k)` and `expected_lstat_known_rank_position(x, a, p) -> (N,)` for the known `(r,p)` conditioning variant
+- `expected_orderstats_known_rank_position(x, p) -> (N,k)` and `expected_lstat_known_rank_position(x, a, p) -> (N,)` for the known `(r,p)` conditioning variant (requires integer `k`)
 - `with_lstat_weights(a)` and `precompute_lstat(N, k, a, ...)` for preweighted L-stat transforms
 
 When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can run in the explicit pipeline:

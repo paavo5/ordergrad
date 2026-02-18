@@ -67,7 +67,7 @@ def test_jax_lstat_and_advantage_match_numpy_with_and_without_preweights():
     rng = np.random.default_rng(12)
     N, k = 30, 6
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
     os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
@@ -94,7 +94,7 @@ def test_jax_dense_matmul_variants_match_efficient_and_auto():
     rng = np.random.default_rng(14)
     N, k = 22, 5
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     x_jx = jnp.asarray(x_np, dtype=jnp.float64)
     a_jx = jnp.asarray(a_np, dtype=jnp.float64)
@@ -168,7 +168,7 @@ def test_jax_known_rank_position_matches_numpy_and_recovers_inclusion_and_advant
     rng = np.random.default_rng(15)
     N, k = 18, 5
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
     os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
@@ -219,14 +219,14 @@ def test_jax_known_rank_position_matches_numpy_and_recovers_inclusion_and_advant
 
 
 @pytest.mark.jax
-def test_jax_real_kappa_matches_integer_k_when_equal():
+def test_jax_real_k_matches_integer_k_when_equal():
     rng = np.random.default_rng(17)
     N, k = 14, 5
     x_np = _rand_x_no_ties(rng, N)
     x_jx = jnp.asarray(x_np, dtype=jnp.float64)
 
     os_int = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
-    os_real = JX.precompute(N, k, kappa=float(k), dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_real = JX.precompute(N, float(k), dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
 
     np.testing.assert_allclose(np.asarray(os_real.expected_orderstats(x_jx)), np.asarray(os_int.expected_orderstats(x_jx)), rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(np.asarray(os_real.expected_orderstats_inclusion(x_jx)), np.asarray(os_int.expected_orderstats_inclusion(x_jx)), rtol=1e-12, atol=1e-12)
@@ -234,16 +234,16 @@ def test_jax_real_kappa_matches_integer_k_when_equal():
 
 
 @pytest.mark.jax
-def test_jax_real_kappa_fractional_is_supported_and_known_rp_rejected():
+def test_jax_real_k_fractional_is_supported_and_known_rp_rejected():
     rng = np.random.default_rng(18)
-    N, k = 15, 6
+    N, k = 15, 5.4
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     x_jx = jnp.asarray(x_np, dtype=jnp.float64)
     a_jx = jnp.asarray(a_np, dtype=jnp.float64)
 
-    os_frac = JX.precompute(N, k, kappa=5.4, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+    os_frac = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
 
     assert np.isfinite(np.asarray(os_frac.expected_orderstats(x_jx))).all()
     assert np.isfinite(np.asarray(os_frac.expected_orderstats_inclusion(x_jx, method="matmul"))).all()

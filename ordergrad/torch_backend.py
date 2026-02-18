@@ -14,9 +14,9 @@ except Exception as e:  # pragma: no cover
 
 def _log_choose(n: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
     """Vectorized log binomial log C(n,r) with -inf for invalid."""
-    # Broadcast and compute with masking. Work in float64 for stability.
-    n = n.to(dtype=torch.float64)
-    r = r.to(dtype=torch.float64)
+    # Accept tensor or scalar inputs; work in float64 for stability.
+    n = torch.as_tensor(n, dtype=torch.float64)
+    r = torch.as_tensor(r, dtype=torch.float64, device=n.device)
     valid = (n >= 0) & (r >= 0) & (r <= n)
 
     n0 = torch.where(valid, n, torch.zeros_like(n))
@@ -48,14 +48,14 @@ def _build_weight_matrix(
 
 
 def precompute_W_unconditional(
-    N: int, k: int, *, kappa: Optional[float] = None, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
+    N: int, k: float, *, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
 ) -> torch.Tensor:
     """W[m-1,j-1] = P(X_(j:k) == x_(m)) for uniform k-subset from N."""
     if not (1 <= k <= N):
         raise ValueError("Require 1 <= k <= N")
     device = device or torch.device("cpu")
 
-    k_eff = float(k if kappa is None else kappa)
+    k_eff = float(k)
     log_den = _log_choose(
         torch.tensor(float(N), device=device), torch.tensor(k_eff, device=device)
     )
@@ -65,7 +65,7 @@ def precompute_W_unconditional(
 
     return _build_weight_matrix(
         N,
-        k,
+        int(float(k)//1),
         log_den,
         log_term,
         dtype=dtype,
@@ -75,14 +75,14 @@ def precompute_W_unconditional(
 
 
 def precompute_ABC_conditional_including_rank(
-    N: int, k: int, *, kappa: Optional[float] = None, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
+    N: int, k: float, *, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Precompute conditional matrices A,B,C (shape (N,k))."""
     if not (1 <= k <= N):
         raise ValueError("Require 1 <= k <= N")
     device = device or torch.device("cpu")
 
-    k_eff = float(k if kappa is None else kappa)
+    k_eff = float(k)
     log_den = _log_choose(
         torch.tensor(float(N - 1), device=device), torch.tensor(k_eff - 1.0, device=device)
     )
@@ -96,21 +96,21 @@ def precompute_ABC_conditional_including_rank(
     def logC(m, j):
         return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
-    A = _build_weight_matrix(N, k, log_den, logA, dtype=dtype, device=device, renormalize_cols=False)
-    B = _build_weight_matrix(N, k, log_den, logB, dtype=dtype, device=device, renormalize_cols=False)
-    C = _build_weight_matrix(N, k, log_den, logC, dtype=dtype, device=device, renormalize_cols=False)
+    A = _build_weight_matrix(N, int(float(k)//1), log_den, logA, dtype=dtype, device=device, renormalize_cols=False)
+    B = _build_weight_matrix(N, int(float(k)//1), log_den, logB, dtype=dtype, device=device, renormalize_cols=False)
+    C = _build_weight_matrix(N, int(float(k)//1), log_den, logC, dtype=dtype, device=device, renormalize_cols=False)
     return A, B, C
 
 
 def precompute_W_leave_one_out(
-    N: int, k: int, *, kappa: Optional[float] = None, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
+    N: int, k: float, *, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
 ) -> torch.Tensor:
     """Wm for reduced population size (N-1). Shape (N-1,k), columns sum to 1."""
     if not (1 <= k <= N - 1):
         raise ValueError("Require 1 <= k <= N-1 for leave-one-out")
     device = device or torch.device("cpu")
 
-    k_eff = float(k if kappa is None else kappa)
+    k_eff = float(k)
     log_den = _log_choose(
         torch.tensor(float(N - 1), device=device), torch.tensor(k_eff, device=device)
     )
@@ -120,7 +120,7 @@ def precompute_W_leave_one_out(
 
     return _build_weight_matrix(
         N - 1,
-        k,
+        int(float(k)//1),
         log_den,
         log_term,
         dtype=dtype,
@@ -169,7 +169,7 @@ class OrderStatTransform:
 
     N: int
     k: int
-    kappa: float
+    k_eff: float
     W: torch.Tensor
     A: Optional[torch.Tensor]
     B: Optional[torch.Tensor]
@@ -186,37 +186,41 @@ class OrderStatTransform:
     def precompute(
         cls,
         N: int,
-        k: int,
+        k: float,
         *,
         dtype: torch.dtype = torch.float64,
         device: Optional[torch.device] = None,
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
-        kappa: Optional[float] = None,
     ) -> "OrderStatTransform":
         device = device or torch.device("cpu")
-        k_eff = float(k if kappa is None else kappa)
-        W = precompute_W_unconditional(N, k, kappa=k_eff, dtype=dtype, device=device)
+        k_eff = float(k)
+        k_ord = int(k_eff // 1)
+        if not (1 <= k_eff <= N):
+            raise ValueError("Require real k with 1 <= k <= N")
+        if not (1 <= k_ord <= N):
+            raise ValueError("floor(k) must satisfy 1 <= floor(k) <= N")
+        W = precompute_W_unconditional(N, k_eff, dtype=dtype, device=device)
 
         A = B = C = None
         if compute_conditional:
-            A, B, C = precompute_ABC_conditional_including_rank(N, k, kappa=k_eff, dtype=dtype, device=device)
+            A, B, C = precompute_ABC_conditional_including_rank(N, k_eff, dtype=dtype, device=device)
 
         Wm = None
         if compute_leave_one_out:
-            if k > N - 1:
-                raise ValueError("Leave-one-out requires k <= N-1")
-            Wm = precompute_W_leave_one_out(N, k, kappa=k_eff, dtype=dtype, device=device)
+            if k_eff > N - 1:
+                raise ValueError("Leave-one-out requires real k <= N-1")
+            Wm = precompute_W_leave_one_out(N, k_eff, dtype=dtype, device=device)
 
         M_inc = M_loo = M_adv = None
         if compute_dense_matrices:
             M_inc = cls._build_dense_inclusion_matrix(A, B, C) if (A is not None and B is not None and C is not None) else None
-            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k) if Wm is not None else None
+            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k_ord) if Wm is not None else None
             if M_inc is not None and M_loo is not None:
                 M_adv = M_inc - M_loo
 
-        return cls(N=N, k=k, kappa=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+        return cls(N=N, k=k_ord, k_eff=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     @staticmethod
     def _build_dense_inclusion_matrix(A: torch.Tensor, B: torch.Tensor, C: torch.Tensor) -> torch.Tensor:
@@ -337,7 +341,7 @@ class OrderStatTransform:
         out = self.__class__(
             N=self.N,
             k=self.k,
-            kappa=self.kappa,
+            k_eff=self.k_eff,
             W=self.W,
             A=self.A,
             B=self.B,
@@ -413,8 +417,8 @@ class OrderStatTransform:
 
     def expected_orderstats_known_rank_position(self, x: torch.Tensor, p: int) -> torch.Tensor:
         """Return E[X_(j:k) | i included and has sample position p] for all i."""
-        if self.kappa != float(self.k):
-            raise ValueError("known (r,p) variant requires integer k (fractional kappa is not supported).")
+        if self.k_eff != float(self.k):
+            raise ValueError("known (r,p) variant requires integer k (fractional k is not supported for known (r,p)).")
         K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype, device=self.W.device)
         x_sorted, inv = self._sort_with_inverse_rank(x)
         return torch.einsum("rmj,m->rj", K, x_sorted)[inv, :]
