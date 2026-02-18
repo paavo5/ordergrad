@@ -63,6 +63,24 @@ def test_jax_gradient_matches_rank_weights():
 
 
 @pytest.mark.jax
+def test_jax_advantage_detach_flag_controls_gradient_flow():
+    rng = np.random.default_rng(31)
+    N, k = 20, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
+    x = jnp.asarray(x_np, dtype=jnp.float64)
+    a = jnp.asarray(a_np, dtype=jnp.float64)
+
+    g_det = np.asarray(jax.grad(lambda z: jnp.sum(os_jx.expected_lstat_advantage(z, a, detach_advantage=True)))(x))
+    g_att = np.asarray(jax.grad(lambda z: jnp.sum(os_jx.expected_lstat_advantage(z, a, detach_advantage=False)))(x))
+
+    np.testing.assert_allclose(g_det, np.zeros_like(g_det), atol=1e-12, rtol=1e-12)
+    assert not np.allclose(g_att, 0.0, atol=1e-12, rtol=1e-12)
+
+
+@pytest.mark.jax
 def test_jax_lstat_and_advantage_match_numpy_with_and_without_preweights():
     rng = np.random.default_rng(12)
     N, k = 30, 6

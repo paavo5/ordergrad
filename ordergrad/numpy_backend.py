@@ -571,7 +571,7 @@ class OrderStatTransform:
         suffix2 = pref2[-1] - pref2_before
         return pref1_excl + suffix2
 
-    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
+    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Return E[X_(j:k)|i included] - E[X_(j:k)] on population with i removed. Shape (N,k)."""
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
@@ -590,7 +590,7 @@ class OrderStatTransform:
         _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+    def expected_orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
         """Known-(r,p) exact advantage q-v. Shape (m,k)."""
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return adv
@@ -603,12 +603,12 @@ class OrderStatTransform:
         a = self._validate_a(a, self.k)
         return self.expected_orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
         a = self._validate_a(a, self.k)
         return self.expected_orderstats_advantage_known_rp(r, p) @ a
 
 
-    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
+    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Convenience: per-item advantage-style transform.
 
         Defined as:

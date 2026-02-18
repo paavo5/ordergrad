@@ -415,13 +415,15 @@ class OrderStatTransform:
             raise ValueError(f"a must be shape ({self.k},)")
         return E_loo @ a
 
-    def expected_orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+    def expected_orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
         if method in {"matmul", "auto"} and self.M_adv is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
-            return jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
-        return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+            out = jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
+            return jax.lax.stop_gradient(out) if detach_advantage else out
+        out = self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+        return jax.lax.stop_gradient(out) if detach_advantage else out
 
     def expected_orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
         v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
@@ -431,9 +433,9 @@ class OrderStatTransform:
         _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, detach_advantage: bool = True) -> jnp.ndarray:
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
-        return adv
+        return jax.lax.stop_gradient(adv) if detach_advantage else adv
 
     def expected_lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
         a = jnp.asarray(a)
@@ -447,14 +449,17 @@ class OrderStatTransform:
             raise ValueError(f"a must be shape ({self.k},)")
         return self.expected_orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray, *, detach_advantage: bool = True) -> jnp.ndarray:
         a = jnp.asarray(a)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        return self.expected_orderstats_advantage_known_rp(r, p) @ a
+        out = self.expected_orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
+        return jax.lax.stop_gradient(out) if detach_advantage else out
 
-    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
+    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
-            return (self.M_adv_a @ x_sorted)[inv]
-        return self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
+            out = (self.M_adv_a @ x_sorted)[inv]
+            return jax.lax.stop_gradient(out) if detach_advantage else out
+        out = self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
+        return jax.lax.stop_gradient(out) if detach_advantage else out

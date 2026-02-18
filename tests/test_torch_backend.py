@@ -59,6 +59,30 @@ def test_torch_gradient_matches_rank_weights():
 
 
 @pytest.mark.torch
+def test_torch_advantage_detach_flag_controls_gradient_flow():
+    rng = np.random.default_rng(32)
+    N, k = 20, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    x_det = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
+    y_det = os_th.expected_lstat_advantage(x_det, a_th, detach_advantage=True).sum()
+    y_det.backward()
+    g_det = x_det.grad.detach().cpu().numpy()
+
+    x_att = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
+    y_att = os_th.expected_lstat_advantage(x_att, a_th, detach_advantage=False).sum()
+    y_att.backward()
+    g_att = x_att.grad.detach().cpu().numpy()
+
+    np.testing.assert_allclose(g_det, np.zeros_like(g_det), atol=1e-12, rtol=1e-12)
+    assert not np.allclose(g_att, 0.0, atol=1e-12, rtol=1e-12)
+
+
+@pytest.mark.torch
 def test_torch_lstat_and_advantage_match_numpy_with_and_without_preweights():
     rng = np.random.default_rng(11)
     N, k = 30, 6
