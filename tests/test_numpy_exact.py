@@ -196,3 +196,45 @@ def test_dense_matmul_path_matches_efficient_path():
         atol=1e-12,
         rtol=1e-12,
     )
+
+
+def test_real_kappa_matches_integer_k_when_equal():
+    rng = np.random.default_rng(7)
+    N, k = 9, 4
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+
+    os_int = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_real = OrderStatTransform.precompute(N, k, kappa=float(k), dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    np.testing.assert_allclose(os_real.expected_orderstats(x), os_int.expected_orderstats(x), atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_inclusion(x), os_int.expected_orderstats_inclusion(x), atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_leave_one_out(x), os_int.expected_orderstats_leave_one_out(x), atol=1e-12, rtol=1e-12)
+
+
+def test_real_kappa_fractional_is_supported_and_finite():
+    rng = np.random.default_rng(8)
+    N, k = 10, 4
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+    a = rng.normal(size=k).astype(np.float64)
+
+    os_frac = OrderStatTransform.precompute(
+        N,
+        k,
+        kappa=4.3,
+        dtype=np.float64,
+        compute_conditional=True,
+        compute_leave_one_out=True,
+        compute_dense_matrices=True,
+    ).with_lstat_weights(a)
+
+    E = os_frac.expected_orderstats(x)
+    E_inc = os_frac.expected_orderstats_inclusion(x, method="matmul")
+    E_loo = os_frac.expected_orderstats_leave_one_out(x, method="matmul")
+    Adv = os_frac.expected_orderstats_advantage(x, method="matmul")
+    l_adv = os_frac.expected_lstat_advantage(x, method="matmul")
+
+    assert np.isfinite(E).all()
+    assert np.isfinite(E_inc).all()
+    assert np.isfinite(E_loo).all()
+    assert np.isfinite(Adv).all()
+    assert np.isfinite(l_adv).all()

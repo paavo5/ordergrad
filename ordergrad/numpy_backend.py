@@ -7,30 +7,31 @@ from typing import Optional, Tuple
 # Combinatorics helpers
 # -----------------------------
 
-def _log_factorials(n: int, dtype=np.float64) -> np.ndarray:
-    """lf[t] = log(t!) for t=0..n."""
-    lf = np.empty(n + 1, dtype=dtype)
-    lf[0] = 0.0
-    if n > 0:
-        lf[1:] = np.cumsum(np.log(np.arange(1, n + 1, dtype=dtype)))
-    return lf
+import math
 
 
-def _log_choose(lf: np.ndarray, n, r):
-    """Vectorized log binomial log C(n,r).
+def _log_gamma_np(x):
+    """Vectorized log-gamma using Python's math.lgamma."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 0:
+        return np.array(math.lgamma(float(x)), dtype=np.float64)
+    return np.vectorize(math.lgamma, otypes=[np.float64])(x)
 
-    Returns -inf where invalid (r<0 or r>n or n<0).
-    n, r may be broadcastable integer arrays.
+
+def _log_choose(n, r):
+    """Vectorized log binomial log C(n,r) via log-gamma for real-valued n,r.
+
+    Returns -inf where invalid (r<0, r>n, n<0).
     """
-    n = np.asarray(n)
-    r = np.asarray(r)
-    valid = (n >= 0) & (r >= 0) & (r <= n)
+    n = np.asarray(n, dtype=np.float64)
+    r = np.asarray(r, dtype=np.float64)
+    valid = (n >= 0.0) & (r >= 0.0) & (r <= n)
 
-    n0 = np.where(valid, n, 0)
-    r0 = np.where(valid, r, 0)
-    nr0 = np.where(valid, n - r, 0)
+    n0 = np.where(valid, n, 1.0)
+    r0 = np.where(valid, r, 0.0)
+    nr0 = np.where(valid, n - r, 1.0)
 
-    out = lf[n0] - lf[r0] - lf[nr0]
+    out = _log_gamma_np(n0 + 1.0) - _log_gamma_np(r0 + 1.0) - _log_gamma_np(nr0 + 1.0)
     return np.where(valid, out, -np.inf)
 
 
@@ -61,7 +62,7 @@ def _build_weight_matrix(
 
     if renormalize_cols:
         colsum = out.sum(axis=0, keepdims=True)
-        out /= colsum
+        np.divide(out, colsum, out=out, where=colsum > 0)
 
     return out
 
@@ -72,20 +73,25 @@ def _build_weight_matrix(
 
 
 def precompute_W_unconditional(
-    N: int, k: int, *, dtype=np.float64, chunk_size: Optional[int] = None
+    N: int,
+    k: int,
+    *,
+    kappa: Optional[float] = None,
+    dtype=np.float64,
+    chunk_size: Optional[int] = None
 ) -> np.ndarray:
     """W[m-1,j-1] = P(X_(j:k) == x_(m)) for uniform k-subset from N.
 
     Shape: (N,k). Columns sum to 1.
     """
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
+    if not (isinstance(k, int) and 1 <= k <= N):
+        raise ValueError("Require integer k with 1 <= k <= N")
+    k_eff = float(k if kappa is None else kappa)
 
-    lf = _log_factorials(N, dtype=np.float64)
-    log_den = lf[N] - lf[k] - lf[N - k]  # log C(N,k)
+    log_den = _log_choose(float(N), k_eff)  # log C(N,kappa)
 
     def log_term(m, j):
-        return _log_choose(lf, m - 1, j - 1) + _log_choose(lf, N - m, k - j)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     return _build_weight_matrix(
         k,
@@ -99,29 +105,34 @@ def precompute_W_unconditional(
 
 
 def precompute_ABC_conditional_including_rank(
-    N: int, k: int, *, dtype=np.float64, chunk_size: Optional[int] = None
+    N: int,
+    k: int,
+    *,
+    kappa: Optional[float] = None,
+    dtype=np.float64,
+    chunk_size: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Precompute conditional matrices A,B,C (all shape (N,k)).
 
     These correspond to the three cases in the conditional pmf given inclusion of rank r.
     """
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
+    if not (isinstance(k, int) and 1 <= k <= N):
+        raise ValueError("Require integer k with 1 <= k <= N")
+    k_eff = float(k if kappa is None else kappa)
 
-    lf = _log_factorials(N, dtype=np.float64)
-    log_den = lf[N - 1] - lf[k - 1] - lf[(N - 1) - (k - 1)]  # log C(N-1,k-1)
+    log_den = _log_choose(float(N - 1), k_eff - 1.0)  # log C(N-1,kappa-1)
 
     def logA(m, j):
         # m<r case weights
-        return _log_choose(lf, m - 1, j - 1) + _log_choose(lf, N - m - 1, k - j - 1)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m - 1, k_eff - j - 1.0)
 
     def logB(m, j):
         # m==r diagonal case
-        return _log_choose(lf, m - 1, j - 1) + _log_choose(lf, N - m, k - j)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     def logC(m, j):
         # m>r case weights
-        return _log_choose(lf, m - 2, j - 2) + _log_choose(lf, N - m, k - j)
+        return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
     A = _build_weight_matrix(
         k,
@@ -154,20 +165,25 @@ def precompute_ABC_conditional_including_rank(
 
 
 def precompute_W_leave_one_out(
-    N: int, k: int, *, dtype=np.float64, chunk_size: Optional[int] = None
+    N: int,
+    k: int,
+    *,
+    kappa: Optional[float] = None,
+    dtype=np.float64,
+    chunk_size: Optional[int] = None
 ) -> np.ndarray:
     """Wm[p-1,j-1] = P(order stat equals p-th smallest) for a population of size (N-1).
 
     Shape: (N-1,k). Columns sum to 1. Requires k <= N-1.
     """
-    if not (1 <= k <= N - 1):
-        raise ValueError("Require 1 <= k <= N-1 for leave-one-out")
+    if not (isinstance(k, int) and 1 <= k <= N - 1):
+        raise ValueError("Require integer k with 1 <= k <= N-1 for leave-one-out")
+    k_eff = float(k if kappa is None else kappa)
 
-    lf = _log_factorials(N, dtype=np.float64)
-    log_den = lf[N - 1] - lf[k] - lf[(N - 1) - k]  # log C(N-1,k)
+    log_den = _log_choose(float(N - 1), k_eff)  # log C(N-1,kappa)
 
     def log_term(p, j):
-        return _log_choose(lf, p - 1, j - 1) + _log_choose(lf, (N - 1) - p, k - j)
+        return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k_eff - j)
 
     return _build_weight_matrix(
         k,
@@ -196,6 +212,7 @@ class OrderStatTransform:
 
     N: int
     k: int
+    kappa: float
     W: np.ndarray  # (N,k)
     A: Optional[np.ndarray]  # (N,k)
     B: Optional[np.ndarray]  # (N,k)
@@ -233,20 +250,22 @@ class OrderStatTransform:
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
+        kappa: Optional[float] = None,
     ):
-        W = precompute_W_unconditional(N, k, dtype=dtype, chunk_size=chunk_size)
+        k_eff = float(k if kappa is None else kappa)
+        W = precompute_W_unconditional(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
 
         A = B = C = None
         if compute_conditional:
             A, B, C = precompute_ABC_conditional_including_rank(
-                N, k, dtype=dtype, chunk_size=chunk_size
+                N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size
             )
 
         Wm = None
         if compute_leave_one_out:
             if k > N - 1:
                 raise ValueError("Leave-one-out requires k <= N-1")
-            Wm = precompute_W_leave_one_out(N, k, dtype=dtype, chunk_size=chunk_size)
+            Wm = precompute_W_leave_one_out(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
 
         M_inc = M_loo = M_adv = None
         if compute_dense_matrices:
@@ -255,7 +274,7 @@ class OrderStatTransform:
             if M_inc is not None and M_loo is not None:
                 M_adv = M_inc - M_loo
 
-        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+        return cls(N=N, k=k, kappa=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
         """Return a new transform with preweighted L-statistic coefficients."""
@@ -271,6 +290,7 @@ class OrderStatTransform:
         return OrderStatTransform(
             N=self.N,
             k=self.k,
+            kappa=self.kappa,
             W=self.W,
             A=self.A,
             B=self.B,

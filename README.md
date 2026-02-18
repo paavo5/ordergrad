@@ -136,7 +136,7 @@ print(g)
 
 Each backend exposes an `OrderStatTransform` class with:
 
-- `precompute(N, k, ..., compute_dense_matrices=False)`
+- `precompute(N, k, ..., compute_dense_matrices=False, kappa=None)`
 - `expected_orderstats(x) -> (k,)`
 - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
 - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)
