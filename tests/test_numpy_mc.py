@@ -50,13 +50,13 @@ def _mc_orderstats_leave_one_out(x: np.ndarray, i: int, k: int, T: int, rng: np.
     return vals.mean(axis=0), vals.std(axis=0, ddof=1)
 
 
-def _assert_close_mc(analytic: np.ndarray, mc_mean: np.ndarray, mc_std: np.ndarray, T: int, scale: float, nsig: float = 6.0):
+def _assert_close_mc(analytic: np.ndarray, mc_mean: np.ndarray, mc_std: np.ndarray, T: int, nsig: float = 4.0):
     analytic = np.asarray(analytic, dtype=np.float64)
     mc_mean = np.asarray(mc_mean, dtype=np.float64)
     mc_std = np.asarray(mc_std, dtype=np.float64)
 
     stderr = mc_std / np.sqrt(T)
-    tol = nsig * stderr + 1e-3 * scale
+    tol = np.maximum(nsig * stderr, 2e-12)
 
     diff = np.abs(analytic - mc_mean)
     if not np.all(diff <= tol):
@@ -78,8 +78,7 @@ def test_unconditional_orderstats_matches_monte_carlo(N, k, T, seed):
     analytic = os.expected_orderstats(x)
     mc_mean, mc_std = _mc_orderstats_unconditional(x, k, T, rng)
 
-    scale = float(np.ptp(x) + 1.0)
-    _assert_close_mc(analytic, mc_mean, mc_std, T, scale)
+    _assert_close_mc(analytic, mc_mean, mc_std, T)
 
 
 def test_conditional_included_orderstats_matches_monte_carlo():
@@ -90,10 +89,9 @@ def test_conditional_included_orderstats_matches_monte_carlo():
     os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=False)
     E_inc = os.expected_orderstats_inclusion(x)  # (N,k)
 
-    scale = float(np.ptp(x) + 1.0)
     for i in [0, N // 2, N - 1, 7]:
         mc_mean, mc_std = _mc_orderstats_cond_include(x, i, k, T, rng)
-        _assert_close_mc(E_inc[i], mc_mean, mc_std, T, scale)
+        _assert_close_mc(E_inc[i], mc_mean, mc_std, T)
 
 
 def test_leave_one_out_orderstats_matches_monte_carlo():
@@ -104,10 +102,9 @@ def test_leave_one_out_orderstats_matches_monte_carlo():
     os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=True)
     E_loo = os.expected_orderstats_leave_one_out(x)
 
-    scale = float(np.ptp(x) + 1.0)
     for i in [0, N // 2, N - 1, 5]:
         mc_mean, mc_std = _mc_orderstats_leave_one_out(x, i, k, T, rng)
-        _assert_close_mc(E_loo[i], mc_mean, mc_std, T, scale)
+        _assert_close_mc(E_loo[i], mc_mean, mc_std, T)
 
 
 def _sample_known_rp_batch(r: np.ndarray, p: np.ndarray, N: int, rng: np.random.Generator) -> np.ndarray:
@@ -130,14 +127,14 @@ def test_known_rp_matches_monte_carlo_unconditional_and_conditional():
     samples = np.sort(r[keys], axis=1)
     mc_v = samples.mean(axis=0)
     mc_v_std = samples.std(axis=0, ddof=1)
-    _assert_close_mc(v, mc_v, mc_v_std, T, scale=float(np.ptp(r) + 1.0), nsig=7.0)
+    _assert_close_mc(v, mc_v, mc_v_std, T, nsig=4.0)
 
     for b in range(len(r)):
         keys_b = rng.choice(len(r), size=(T, k - 1), replace=True, p=p)
         samp_b = np.sort(np.concatenate([np.full((T, 1), r[b]), r[keys_b]], axis=1), axis=1)
         mc_q = samp_b.mean(axis=0)
         mc_q_std = samp_b.std(axis=0, ddof=1)
-        _assert_close_mc(q[b], mc_q, mc_q_std, T, scale=float(np.ptp(r) + 1.0), nsig=7.0)
+        _assert_close_mc(q[b], mc_q, mc_q_std, T, nsig=4.0)
 
 
 def test_batch_advantage_matches_known_rp_advantage_in_expectation():
@@ -151,6 +148,7 @@ def test_batch_advantage_matches_known_rp_advantage_in_expectation():
     adv_exact = os_known.expected_orderstats_advantage_known_rp(r, p)  # (m,k)
 
     sum_adv = np.zeros_like(adv_exact)
+    sumsq_adv = np.zeros_like(adv_exact)
     cnt = np.zeros((len(r), 1), dtype=np.int64)
 
     for _ in range(B):
@@ -159,9 +157,22 @@ def test_batch_advantage_matches_known_rp_advantage_in_expectation():
         for b in range(len(r)):
             mask = arms == b
             if np.any(mask):
-                sum_adv[b] += adv_i[mask].sum(axis=0)
-                cnt[b, 0] += int(mask.sum())
+                vals = adv_i[mask]
+                sum_adv[b] += vals.sum(axis=0)
+                sumsq_adv[b] += (vals * vals).sum(axis=0)
+                cnt[b, 0] += int(vals.shape[0])
 
-    est = sum_adv / np.maximum(cnt, 1)
-    # Monte Carlo tolerance
-    np.testing.assert_allclose(est, adv_exact, atol=0.08, rtol=0.08)
+    n = np.maximum(cnt, 1)
+    est = sum_adv / n
+    ex2 = sumsq_adv / n
+    var = np.maximum(ex2 - est * est, 0.0)
+    stderr = np.sqrt(var / n)
+    tol = 4.0 * stderr
+
+    diff = np.abs(est - adv_exact)
+    if not np.all(diff <= tol):
+        bad = np.unravel_index(np.argmax(diff - tol), diff.shape)
+        raise AssertionError(
+            f"Advantage MC check failed at arm={bad[0]}, j={bad[1]+1}: "
+            f"diff={diff[bad]:.6g}, tol={tol[bad]:.6g}."
+        )
