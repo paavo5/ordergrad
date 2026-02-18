@@ -136,16 +136,19 @@ print(g)
 
 Each backend exposes an `OrderStatTransform` class with:
 
-- `precompute(N, k, ...)`
+- `precompute(N, k, ..., compute_dense_matrices=False)`
 - `expected_orderstats(x) -> (k,)`
-- `expected_orderstats_inclusion(x) -> (N,k)`
-- `expected_orderstats_leave_one_out(x) -> (N,k)` (requires `k <= N-1`)
+- `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
+- `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)
 - `expected_lstat(x, a) -> scalar`
-- `expected_lstat_inclusion(x, a) -> (N,)`
-- `expected_lstat_leave_one_out(x, a) -> (N,)`
-- `expected_lstat_advantage(x, a) -> (N,)`
-- `expected_orderstats_advantage(x) -> (N,k)`
+- `expected_lstat_inclusion(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_lstat_leave_one_out(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_lstat_advantage(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto") -> (N,k)`
 - `with_lstat_weights(a)` and `precompute_lstat(N, k, a, ...)` for preweighted L-stat transforms
+
+When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can run in the explicit pipeline:
+`sort -> matmul -> revert sort`. The original prefix/suffix efficient methods remain available via `method="efficient"`.
 
 
 ## Testing

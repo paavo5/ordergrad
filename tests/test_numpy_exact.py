@@ -141,3 +141,58 @@ def test_preweighted_lstat_and_direct_advantage_match_baseline():
 
     adv_os = base.expected_orderstats_advantage(x)
     np.testing.assert_allclose(adv_os, base.expected_orderstats_inclusion(x) - base.expected_orderstats_leave_one_out(x), atol=1e-12, rtol=1e-12)
+
+
+def test_dense_matmul_path_matches_efficient_path():
+    rng = np.random.default_rng(456)
+    N, k = 10, 4
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+    a = rng.normal(size=k).astype(np.float64)
+
+    dense = OrderStatTransform.precompute(
+        N,
+        k,
+        dtype=np.float64,
+        compute_conditional=True,
+        compute_leave_one_out=True,
+        compute_dense_matrices=True,
+    )
+
+    np.testing.assert_allclose(
+        dense.expected_orderstats_inclusion(x, method="matmul"),
+        dense.expected_orderstats_inclusion(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_leave_one_out(x, method="matmul"),
+        dense.expected_orderstats_leave_one_out(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_advantage(x, method="matmul"),
+        dense.expected_orderstats_advantage(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+
+    weighted = dense.with_lstat_weights(a)
+    np.testing.assert_allclose(
+        weighted.expected_lstat_inclusion(x, method="matmul"),
+        weighted.expected_lstat_inclusion(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        weighted.expected_lstat_leave_one_out(x, method="matmul"),
+        weighted.expected_lstat_leave_one_out(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        weighted.expected_lstat_advantage(x, method="matmul"),
+        weighted.expected_lstat_advantage(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )

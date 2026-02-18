@@ -206,6 +206,12 @@ class OrderStatTransform:
     Ba: Optional[np.ndarray] = None  # (N,)
     Ca: Optional[np.ndarray] = None  # (N,)
     Wma: Optional[np.ndarray] = None  # (N-1,)
+    M_inc: Optional[np.ndarray] = None  # (N,N,k)
+    M_loo: Optional[np.ndarray] = None  # (N,N,k)
+    M_adv: Optional[np.ndarray] = None  # (N,N,k)
+    M_inc_a: Optional[np.ndarray] = None  # (N,N)
+    M_loo_a: Optional[np.ndarray] = None  # (N,N)
+    M_adv_a: Optional[np.ndarray] = None  # (N,N)
 
     @staticmethod
     def _validate_a(a: Optional[np.ndarray], k: int) -> np.ndarray:
@@ -226,6 +232,7 @@ class OrderStatTransform:
         chunk_size: Optional[int] = None,
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
+        compute_dense_matrices: bool = False,
     ):
         W = precompute_W_unconditional(N, k, dtype=dtype, chunk_size=chunk_size)
 
@@ -241,7 +248,14 @@ class OrderStatTransform:
                 raise ValueError("Leave-one-out requires k <= N-1")
             Wm = precompute_W_leave_one_out(N, k, dtype=dtype, chunk_size=chunk_size)
 
-        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm)
+        M_inc = M_loo = M_adv = None
+        if compute_dense_matrices:
+            M_inc = cls._build_dense_inclusion_matrix(A, B, C) if (A is not None and B is not None and C is not None) else None
+            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k) if Wm is not None else None
+            if M_inc is not None and M_loo is not None:
+                M_adv = M_inc - M_loo
+
+        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
         """Return a new transform with preweighted L-statistic coefficients."""
@@ -267,12 +281,40 @@ class OrderStatTransform:
             Ba=Ba,
             Ca=Ca,
             Wma=Wma,
+            M_inc=self.M_inc,
+            M_loo=self.M_loo,
+            M_adv=self.M_adv,
+            M_inc_a=(np.tensordot(self.M_inc, a, axes=([2], [0])) if self.M_inc is not None else None),
+            M_loo_a=(np.tensordot(self.M_loo, a, axes=([2], [0])) if self.M_loo is not None else None),
+            M_adv_a=(np.tensordot(self.M_adv, a, axes=([2], [0])) if self.M_adv is not None else None),
         )
 
     @classmethod
     def precompute_lstat(cls, N: int, k: int, a: np.ndarray, **kwargs) -> "OrderStatTransform":
         """Precompute matrices and pre-apply L-statistic weights `a`."""
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
+
+    @staticmethod
+    def _build_dense_inclusion_matrix(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> np.ndarray:
+        """Build dense inclusion map M_inc[r,m,j] for rank-space matmul eval."""
+        N, k = A.shape
+        r = np.arange(N)[:, None]
+        m = np.arange(N)[None, :]
+        lt = (m < r)[:, :, None]
+        eq = (m == r)[:, :, None]
+        gt = (m > r)[:, :, None]
+        return lt * A[None, :, :] + eq * B[None, :, :] + gt * C[None, :, :]
+
+    @staticmethod
+    def _build_dense_leave_one_out_matrix(Wm: np.ndarray, N: int, k: int) -> np.ndarray:
+        """Build dense leave-one-out map M_loo[r,m,j] for rank-space matmul eval."""
+        M = np.zeros((N, N, k), dtype=Wm.dtype)
+        for r in range(N):
+            if r > 0:
+                M[r, :r, :] = Wm[:r, :]
+            if r < N - 1:
+                M[r, r + 1 :, :] = Wm[r:, :]
+        return M
 
     def _sort_with_inverse_rank(self, x: np.ndarray):
         x = np.asarray(x)
@@ -291,12 +333,18 @@ class OrderStatTransform:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
-    def expected_orderstats_inclusion(self, x: np.ndarray) -> np.ndarray:
+    def expected_orderstats_inclusion(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
         """Return E[X_(j:k) | i included] for all i. Shape (N,k)."""
-        if self.A is None or self.B is None or self.C is None:
-            raise ValueError("Conditional matrices A,B,C were not precomputed.")
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
         x_sorted, inv = self._sort_with_inverse_rank(x)
+        if method in {"matmul", "auto"} and self.M_inc is not None:
+            E_by_rank = np.einsum("rmj,m->rj", self.M_inc, x_sorted)
+            return E_by_rank[inv, :]
+
+        if self.A is None or self.B is None or self.C is None:
+            raise ValueError("Conditional matrices A,B,C were not precomputed.")
 
         XA = x_sorted[:, None] * self.A
         XC = x_sorted[:, None] * self.C
@@ -313,14 +361,20 @@ class OrderStatTransform:
         E_by_rank = prefA_excl + diag + suffC_excl
         return E_by_rank[inv, :]
 
-    def expected_orderstats_leave_one_out(self, x: np.ndarray) -> np.ndarray:
+    def expected_orderstats_leave_one_out(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
         """Return E[X_(j:k)] on population with i removed. Shape (N,k)."""
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
+
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+        if method in {"matmul", "auto"} and self.M_loo is not None:
+            E_by_rank = np.einsum("rmj,m->rj", self.M_loo, x_sorted)
+            return E_by_rank[inv, :]
+
         if self.Wm is None:
             raise ValueError("Leave-one-out matrix Wm was not precomputed.")
         if self.k > self.N - 1:
             raise ValueError("Leave-one-out requires k <= N-1")
-
-        x_sorted, inv = self._sort_with_inverse_rank(x)
 
         u = x_sorted[:-1]
         v = x_sorted[1:]
@@ -362,20 +416,26 @@ class OrderStatTransform:
         w_rank = self.lstat_weight_by_rank(a)
         return float(x_sorted @ w_rank)
 
-    def expected_lstat_inclusion(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
+    def expected_lstat_inclusion(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S) | i included] for all i. Shape (N,)."""
         if a is None and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return self._expected_lstat_inclusion_by_rank(x_sorted)[inv]
-        E_inc = self.expected_orderstats_inclusion(x)
+        if method in {"matmul", "auto"} and self.M_inc_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_inc_a @ x_sorted)[inv]
+        E_inc = self.expected_orderstats_inclusion(x, method=method)
         return E_inc @ self._validate_a(a, self.k)
 
-    def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
+    def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S)] on population with i removed, for all i. Shape (N,)."""
         if a is None and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return self._expected_lstat_leave_one_out_by_rank(x_sorted)[inv]
-        E_loo = self.expected_orderstats_leave_one_out(x)
+        if method in {"matmul", "auto"} and self.M_loo_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_loo_a @ x_sorted)[inv]
+        E_loo = self.expected_orderstats_leave_one_out(x, method=method)
         return E_loo @ self._validate_a(a, self.k)
 
     def _expected_lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
@@ -400,31 +460,17 @@ class OrderStatTransform:
         suffix2 = pref2[-1] - pref2_before
         return pref1_excl + suffix2
 
-    def expected_orderstats_advantage(self, x: np.ndarray) -> np.ndarray:
+    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
         """Return E[X_(j:k)|i included] - E[X_(j:k)] on population with i removed. Shape (N,k)."""
-        if self.A is None or self.B is None or self.C is None or self.Wm is None:
-            raise ValueError("Advantage requires both conditional and leave-one-out precomputations.")
-        x_sorted, inv = self._sort_with_inverse_rank(x)
-
-        XA = x_sorted[:, None] * self.A
-        XC = x_sorted[:, None] * self.C
-        prefA = np.cumsum(XA, axis=0)
-        prefA_excl = np.vstack([np.zeros((1, self.k), dtype=XA.dtype), prefA[:-1]])
-        prefC = np.cumsum(XC, axis=0)
-        inc = prefA_excl + (x_sorted[:, None] * self.B) + (prefC[-1:] - prefC)
-
-        u = x_sorted[:-1]
-        v = x_sorted[1:]
-        p1 = u[:, None] * self.Wm
-        p2 = v[:, None] * self.Wm
-        pref1 = np.cumsum(p1, axis=0)
-        loo_left = np.vstack([np.zeros((1, self.k), dtype=p1.dtype), pref1])
-        pref2 = np.cumsum(p2, axis=0)
-        loo = loo_left + (pref2[-1:] - np.vstack([np.zeros((1, self.k), dtype=p2.dtype), pref2]))
-        return (inc - loo)[inv, :]
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
+        if method in {"matmul", "auto"} and self.M_adv is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return np.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
+        return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
 
-    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
+    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Convenience: per-item advantage-style transform.
 
         Defined as:
@@ -436,4 +482,7 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             adv_by_rank = self._expected_lstat_inclusion_by_rank(x_sorted) - self._expected_lstat_leave_one_out_by_rank(x_sorted)
             return adv_by_rank[inv]
-        return self.expected_lstat_inclusion(x, a) - self.expected_lstat_leave_one_out(x, a)
+        if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_adv_a @ x_sorted)[inv]
+        return self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
