@@ -238,3 +238,87 @@ def test_real_kappa_fractional_is_supported_and_finite():
     assert np.isfinite(E_loo).all()
     assert np.isfinite(Adv).all()
     assert np.isfinite(l_adv).all()
+
+
+def test_matmul_method_fallback_and_auto_selection_behaviors():
+    rng = np.random.default_rng(99)
+    N, k = 9, 3
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+    a = rng.normal(size=k).astype(np.float64)
+
+    no_dense = OrderStatTransform.precompute(
+        N,
+        k,
+        dtype=np.float64,
+        compute_conditional=True,
+        compute_leave_one_out=True,
+        compute_dense_matrices=False,
+    )
+    dense = OrderStatTransform.precompute(
+        N,
+        k,
+        dtype=np.float64,
+        compute_conditional=True,
+        compute_leave_one_out=True,
+        compute_dense_matrices=True,
+    )
+
+    # matmul should gracefully fall back to efficient when dense matrices are not precomputed.
+    np.testing.assert_allclose(
+        no_dense.expected_orderstats_inclusion(x, method="matmul"),
+        no_dense.expected_orderstats_inclusion(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        no_dense.expected_orderstats_leave_one_out(x, method="matmul"),
+        no_dense.expected_orderstats_leave_one_out(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        no_dense.expected_orderstats_advantage(x, method="matmul"),
+        no_dense.expected_orderstats_advantage(x, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+
+    # auto should choose the available dense path when present.
+    np.testing.assert_allclose(
+        dense.expected_orderstats_inclusion(x, method="auto"),
+        dense.expected_orderstats_inclusion(x, method="matmul"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_leave_one_out(x, method="auto"),
+        dense.expected_orderstats_leave_one_out(x, method="matmul"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_advantage(x, method="auto"),
+        dense.expected_orderstats_advantage(x, method="matmul"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+
+    # Explicit a with matmul should work and agree with efficient mode.
+    np.testing.assert_allclose(
+        dense.expected_lstat_inclusion(x, a, method="matmul"),
+        dense.expected_lstat_inclusion(x, a, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_lstat_leave_one_out(x, a, method="matmul"),
+        dense.expected_lstat_leave_one_out(x, a, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_lstat_advantage(x, a, method="matmul"),
+        dense.expected_lstat_advantage(x, a, method="efficient"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
