@@ -164,61 +164,29 @@ def test_jax_dense_matmul_variants_match_efficient_and_auto():
 
 
 @pytest.mark.jax
-def test_jax_known_rank_position_matches_numpy_and_recovers_inclusion_and_advantage():
-    rng = np.random.default_rng(15)
-    N, k = 18, 5
-    x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
-
-    os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-    os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
-
-    x_jx = jnp.asarray(x_np, dtype=jnp.float64)
-    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
-
-    E_inc_np = os_np.expected_orderstats_inclusion(x_np)
-    E_inc_jx = np.asarray(os_jx.expected_orderstats_inclusion(x_jx))
-    E_loo_np = os_np.expected_orderstats_leave_one_out(x_np)
-
-    perm = np.argsort(x_np, kind="mergesort")
-    inv = np.empty(N, dtype=np.int64)
-    inv[perm] = np.arange(N, dtype=np.int64)
-
-    rec_inc_np = np.zeros_like(E_inc_np)
-    rec_inc_jx = np.zeros_like(E_inc_np)
-    rec_adv_np = np.zeros_like(E_inc_np)
-    rec_adv_jx = np.zeros_like(E_inc_np)
-    rec_l_inc_np = np.zeros(N, dtype=np.float64)
-    rec_l_inc_jx = np.zeros(N, dtype=np.float64)
-
-    for ppos in range(1, k + 1):
-        rp_np = os_np.expected_orderstats_known_rank_position(x_np, ppos)
-        rp_jx = np.asarray(os_jx.expected_orderstats_known_rank_position(x_jx, ppos))
-        np.testing.assert_allclose(rp_jx, rp_np, rtol=1e-12, atol=1e-12)
-
-        lp_np = os_np.expected_lstat_known_rank_position(x_np, a_np, ppos)
-        lp_jx = np.asarray(os_jx.expected_lstat_known_rank_position(x_jx, a_jx, ppos))
-        np.testing.assert_allclose(lp_jx, lp_np, rtol=1e-12, atol=1e-12)
-
-        probs = os_np.B[:, ppos - 1][inv]
-        rec_inc_np += probs[:, None] * rp_np
-        rec_inc_jx += probs[:, None] * rp_jx
-        rec_adv_np += probs[:, None] * (rp_np - E_loo_np)
-        rec_adv_jx += probs[:, None] * (rp_jx - E_loo_np)
-        rec_l_inc_np += probs * lp_np
-        rec_l_inc_jx += probs * lp_jx
-
-    np.testing.assert_allclose(rec_inc_np, E_inc_np, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(rec_inc_jx, E_inc_jx, rtol=1e-12, atol=1e-12)
-
-    np.testing.assert_allclose(rec_adv_np, os_np.expected_orderstats_advantage(x_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(rec_adv_jx, np.asarray(os_jx.expected_orderstats_advantage(x_jx)), rtol=1e-12, atol=1e-12)
-
-    np.testing.assert_allclose(rec_l_inc_np, os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(rec_l_inc_jx, np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+@pytest.mark.jax
 
 
 @pytest.mark.jax
+def test_jax_known_rp_matches_numpy():
+    r_np = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
+    p_np = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
+    k = 4
+    a_np = np.array([0.2, -0.1, 0.4, 0.3], dtype=np.float64)
+
+    os_np = NP.precompute(12, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_jx = JX.precompute(12, k, dtype=jnp.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    r_jx = jnp.asarray(r_np, dtype=jnp.float64)
+    p_jx = jnp.asarray(p_np, dtype=jnp.float64)
+    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
+
+    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_known_rp(r_jx, p_jx)), os_np.expected_orderstats_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_inclusion_known_rp(r_jx, p_jx)), os_np.expected_orderstats_inclusion_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_advantage_known_rp(r_jx, p_jx)), os_np.expected_orderstats_advantage_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_advantage_known_rp(r_jx, p_jx, a_jx)), os_np.expected_lstat_advantage_known_rp(r_np, p_np, a_np), rtol=1e-12, atol=1e-12)
+
+
 def test_jax_real_k_matches_integer_k_when_equal():
     rng = np.random.default_rng(17)
     N, k = 14, 5
@@ -234,7 +202,7 @@ def test_jax_real_k_matches_integer_k_when_equal():
 
 
 @pytest.mark.jax
-def test_jax_real_k_fractional_is_supported_and_known_rp_rejected():
+def test_jax_real_k_fractional_is_supported():
     rng = np.random.default_rng(18)
     N, k = 15, 5.4
     x_np = _rand_x_no_ties(rng, N)
@@ -251,5 +219,4 @@ def test_jax_real_k_fractional_is_supported_and_known_rp_rejected():
     assert np.isfinite(np.asarray(os_frac.expected_orderstats_advantage(x_jx, method="matmul"))).all()
     assert np.isfinite(np.asarray(os_frac.expected_lstat_advantage(x_jx, a_jx, method="matmul"))).all()
 
-    with pytest.raises(ValueError, match=r"known \(r,p\) variant"):
-        os_frac.expected_orderstats_known_rank_position(x_jx, 2)
+    

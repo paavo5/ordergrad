@@ -95,32 +95,66 @@ def precompute_W_leave_one_out(N: int, k: float, *, dtype=jnp.float64) -> jnp.nd
     return _build_weight_matrix(N - 1, int(float(k)//1), log_den, log_term, dtype=dtype, renormalize_cols=True)
 
 
-def precompute_W_known_rank_position(N: int, k: int, p: int, *, dtype=jnp.float64) -> jnp.ndarray:
-    """Weights for E[X_(j:k) | rank r included and has sample position p]."""
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
-    if not (1 <= p <= k):
-        raise ValueError("Require 1 <= p <= k")
+def _binom_tail_table(k: float, F: jnp.ndarray, k_ord: int, *, dtype=jnp.float64) -> jnp.ndarray:
+    """T[t,j-1] = P(Bin(k,F_t) >= j), with t=0..m and j=1..k_ord."""
+    F = jnp.asarray(F, dtype=jnp.float64)
+    s = jnp.arange(0, k_ord + 1, dtype=jnp.float64)[:, None]
+    logF = jnp.where(F[None, :] > 0, jnp.log(F[None, :]), 0.0)
+    log1mF = jnp.where(F[None, :] < 1, jnp.log1p(-F[None, :]), 0.0)
+    term1 = jnp.where(s > 0, jnp.where(F[None, :] > 0, s * logF, -jnp.inf), 0.0)
+    term2 = jnp.where((float(k) - s) > 0, jnp.where(F[None, :] < 1, (float(k) - s) * log1mF, -jnp.inf), 0.0)
+    logpmf = _log_choose(float(k), s) + term1 + term2
+    pmf = jnp.exp(logpmf)
+    cols = [jnp.sum(pmf[j:, :], axis=0) for j in range(1, k_ord + 1)]
+    return jnp.stack(cols, axis=1).astype(dtype)
 
-    r = jnp.arange(1, N + 1, dtype=jnp.int32)[:, None, None]
-    m = jnp.arange(1, N + 1, dtype=jnp.int32)[None, :, None]
-    j = jnp.arange(1, k + 1, dtype=jnp.int32)[None, None, :]
 
-    K = jnp.zeros((N, N, k), dtype=dtype)
+def known_rp_orderstats(r: jnp.ndarray, p: jnp.ndarray, k: float, *, dtype=jnp.float64):
+    """Exact known-(r,p) with-replacement order-statistics quantities."""
+    r = jnp.asarray(r, dtype=jnp.float64)
+    p = jnp.asarray(p, dtype=jnp.float64)
+    if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
+        raise ValueError("r and p must be 1D arrays of equal length")
+    if jnp.any(p < 0):
+        raise ValueError("p must be nonnegative")
+    p = p / jnp.sum(p)
+    m = int(r.shape[0])
+    k_eff = float(k)
+    k_ord = int(jnp.floor(k_eff))
+    if not (k_eff >= 1):
+        raise ValueError("Require real k >= 1")
+    if k_ord < 1:
+        raise ValueError("floor(k) must be >= 1")
 
-    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
-    log_low = _log_choose(m - 1, j - 1) + _log_choose(r - m - 1, (p - 1) - j) - _log_choose(r - 1, p - 1)
-    log_low = jnp.where(valid_low, log_low, -jnp.inf)
-    K = jnp.where(valid_low, jnp.exp(log_low).astype(dtype), K)
+    perm = jnp.argsort(r, stable=True)
+    inv = jnp.empty_like(perm)
+    inv = inv.at[perm].set(jnp.arange(m, dtype=perm.dtype))
+    rs = r[perm]
+    ps = p[perm]
 
-    K = K.at[:, :, p - 1].set((m[:, :, 0] == r[:, :, 0]).astype(dtype))
+    F = jnp.concatenate([jnp.array([0.0], dtype=jnp.float64), jnp.cumsum(ps)])
+    T_k = _binom_tail_table(k_eff, F, k_ord, dtype=dtype)
+    W = T_k[1:, :] - T_k[:-1, :]
+    v = rs @ W
 
-    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
-    q = j - p
-    log_high = _log_choose(m - r - 1, q - 1) + _log_choose(N - m, (k - p) - q) - _log_choose(N - r, k - p)
-    log_high = jnp.where(valid_high, log_high, -jnp.inf)
-    K = jnp.where(valid_high, jnp.exp(log_high).astype(dtype), K)
-    return K
+    T_km1 = _binom_tail_table(k_eff - 1.0, F, k_ord, dtype=dtype)
+    q_sorted = []
+    for b in range(m):
+        delta = jnp.concatenate([jnp.array([0], dtype=jnp.int32), (rs[b] <= rs).astype(jnp.int32)])
+        cols = []
+        rows = jnp.arange(m + 1)
+        for j in range(1, k_ord + 1):
+            need = j - delta
+            idx = jnp.clip(need - 1, 0, k_ord - 1)
+            take = T_km1[rows, idx]
+            col = jnp.where(need <= 0, 1.0, jnp.where(need <= k_ord, take, 0.0))
+            cols.append(col)
+        Q = jnp.stack(cols, axis=1)
+        Wq = Q[1:, :] - Q[:-1, :]
+        q_sorted.append(rs @ Wq)
+    q_sorted = jnp.stack(q_sorted, axis=0)
+    adv_sorted = q_sorted - v[None, :]
+    return v.astype(dtype), q_sorted[inv, :].astype(dtype), adv_sorted[inv, :].astype(dtype)
 
 
 @dataclass(frozen=True)
@@ -389,20 +423,35 @@ class OrderStatTransform:
             return jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
-    def expected_orderstats_known_rank_position(self, x: jnp.ndarray, p: int) -> jnp.ndarray:
-        """Return E[X_(j:k) | i included and has sample position p] for all i."""
-        if self.k_eff != float(self.k):
-            raise ValueError("known (r,p) variant requires integer k (fractional k is not supported for known (r,p)).")
-        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype)
-        x_sorted, inv = self._sort_with_inverse_rank(x)
-        return jnp.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+    def expected_orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+        v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return v
 
-    def expected_lstat_known_rank_position(self, x: jnp.ndarray, a: jnp.ndarray, p: int) -> jnp.ndarray:
-        """Return E[T(S) | i included and has sample position p] for all i."""
+    def expected_orderstats_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+        _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return q
+
+    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+        _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return adv
+
+    def expected_lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
         a = jnp.asarray(a)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        return self.expected_orderstats_known_rank_position(x, p) @ a
+        return self.expected_orderstats_known_rp(r, p) @ a
+
+    def expected_lstat_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+
+    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_advantage_known_rp(r, p) @ a
 
     def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:

@@ -198,29 +198,28 @@ def test_dense_matmul_path_matches_efficient_path():
     )
 
 
-def test_real_kappa_matches_integer_k_when_equal():
+def test_real_k_matches_integer_k_when_equal():
     rng = np.random.default_rng(7)
     N, k = 9, 4
     x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
 
     os_int = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-    os_real = OrderStatTransform.precompute(N, k, kappa=float(k), dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_real = OrderStatTransform.precompute(N, float(k), dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
 
     np.testing.assert_allclose(os_real.expected_orderstats(x), os_int.expected_orderstats(x), atol=1e-12, rtol=1e-12)
     np.testing.assert_allclose(os_real.expected_orderstats_inclusion(x), os_int.expected_orderstats_inclusion(x), atol=1e-12, rtol=1e-12)
     np.testing.assert_allclose(os_real.expected_orderstats_leave_one_out(x), os_int.expected_orderstats_leave_one_out(x), atol=1e-12, rtol=1e-12)
 
 
-def test_real_kappa_fractional_is_supported_and_finite():
+def test_real_k_fractional_is_supported_and_finite():
     rng = np.random.default_rng(8)
-    N, k = 10, 4
+    N, k = 10, 4.3
     x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=k).astype(np.float64)
+    a = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     os_frac = OrderStatTransform.precompute(
         N,
         k,
-        kappa=4.3,
         dtype=np.float64,
         compute_conditional=True,
         compute_leave_one_out=True,
@@ -240,139 +239,41 @@ def test_real_kappa_fractional_is_supported_and_finite():
     assert np.isfinite(l_adv).all()
 
 
-def test_matmul_method_fallback_and_auto_selection_behaviors():
-    rng = np.random.default_rng(99)
-    N, k = 9, 3
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=k).astype(np.float64)
+def test_known_rp_exact_matches_bruteforce_small_case():
+    r = np.array([-1.0, 0.5, 2.0], dtype=np.float64)
+    p = np.array([0.2, 0.5, 0.3], dtype=np.float64)
+    k = 3
 
-    no_dense = OrderStatTransform.precompute(
-        N,
-        k,
-        dtype=np.float64,
-        compute_conditional=True,
-        compute_leave_one_out=True,
-        compute_dense_matrices=False,
-    )
-    dense = OrderStatTransform.precompute(
-        N,
-        k,
-        dtype=np.float64,
-        compute_conditional=True,
-        compute_leave_one_out=True,
-        compute_dense_matrices=True,
-    )
+    os = OrderStatTransform.precompute(8, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    v, q, adv = os.expected_orderstats_known_rp(r, p), os.expected_orderstats_inclusion_known_rp(r, p), os.expected_orderstats_advantage_known_rp(r, p)
 
-    # matmul should gracefully fall back to efficient when dense matrices are not precomputed.
-    np.testing.assert_allclose(
-        no_dense.expected_orderstats_inclusion(x, method="matmul"),
-        no_dense.expected_orderstats_inclusion(x, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        no_dense.expected_orderstats_leave_one_out(x, method="matmul"),
-        no_dense.expected_orderstats_leave_one_out(x, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        no_dense.expected_orderstats_advantage(x, method="matmul"),
-        no_dense.expected_orderstats_advantage(x, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
+    import itertools
+    vals = []
+    probs = []
+    for seq in itertools.product(range(len(r)), repeat=k):
+        x = np.sort(r[list(seq)])
+        pr = np.prod(p[list(seq)])
+        vals.append(x)
+        probs.append(pr)
+    vals = np.asarray(vals)
+    probs = np.asarray(probs)
+    v_ref = (probs[:, None] * vals).sum(axis=0)
+    np.testing.assert_allclose(v, v_ref, atol=1e-12, rtol=1e-12)
 
-    # auto should choose the available dense path when present.
-    np.testing.assert_allclose(
-        dense.expected_orderstats_inclusion(x, method="auto"),
-        dense.expected_orderstats_inclusion(x, method="matmul"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        dense.expected_orderstats_leave_one_out(x, method="auto"),
-        dense.expected_orderstats_leave_one_out(x, method="matmul"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        dense.expected_orderstats_advantage(x, method="auto"),
-        dense.expected_orderstats_advantage(x, method="matmul"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
+    for b in range(len(r)):
+        vals_b = []
+        probs_b = []
+        for tail in itertools.product(range(len(r)), repeat=k - 1):
+            seq = (b,) + tail
+            x = np.sort(r[list(seq)])
+            pr = np.prod(p[list(tail)])
+            vals_b.append(x)
+            probs_b.append(pr)
+        vals_b = np.asarray(vals_b)
+        probs_b = np.asarray(probs_b)
+        q_ref = (probs_b[:, None] * vals_b).sum(axis=0)
+        np.testing.assert_allclose(q[b], q_ref, atol=1e-12, rtol=1e-12)
 
-    # Explicit a with matmul should work and agree with efficient mode.
-    np.testing.assert_allclose(
-        dense.expected_lstat_inclusion(x, a, method="matmul"),
-        dense.expected_lstat_inclusion(x, a, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        dense.expected_lstat_leave_one_out(x, a, method="matmul"),
-        dense.expected_lstat_leave_one_out(x, a, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
-    np.testing.assert_allclose(
-        dense.expected_lstat_advantage(x, a, method="matmul"),
-        dense.expected_lstat_advantage(x, a, method="efficient"),
-        atol=1e-12,
-        rtol=1e-12,
-    )
+    np.testing.assert_allclose(adv, q - v[None, :], atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose((p[:, None] * adv).sum(axis=0), np.zeros_like(v), atol=1e-12, rtol=1e-12)
 
-
-def test_known_rank_position_reduces_to_inclusion_when_marginalized_over_p():
-    rng = np.random.default_rng(101)
-    N, k = 12, 5
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=k).astype(np.float64)
-
-    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-    E_inc = os.expected_orderstats_inclusion(x)
-
-    x_sorted = np.sort(x, kind="mergesort")
-    inv = np.empty(N, dtype=np.int64)
-    inv[np.argsort(x, kind="mergesort")] = np.arange(N, dtype=np.int64)
-
-    recon = np.zeros_like(E_inc)
-    recon_l = np.zeros(N, dtype=np.float64)
-    for p in range(1, k + 1):
-        E_rp = os.expected_orderstats_known_rank_position(x, p)
-        l_rp = os.expected_lstat_known_rank_position(x, a, p)
-        probs_rank = os.B[:, p - 1]
-        probs_item = probs_rank[inv]
-        recon += probs_item[:, None] * E_rp
-        recon_l += probs_item * l_rp
-
-    np.testing.assert_allclose(recon, E_inc, atol=1e-12, rtol=1e-12)
-    np.testing.assert_allclose(recon_l, os.expected_lstat_inclusion(x, a), atol=1e-12, rtol=1e-12)
-
-
-def test_known_rank_position_advantage_marginalization_matches_standard_advantage():
-    rng = np.random.default_rng(202)
-    N, k = 13, 4
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=k).astype(np.float64)
-
-    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-
-    E_loo = os.expected_orderstats_leave_one_out(x)
-    l_loo = os.expected_lstat_leave_one_out(x, a)
-
-    inv = np.empty(N, dtype=np.int64)
-    inv[np.argsort(x, kind="mergesort")] = np.arange(N, dtype=np.int64)
-
-    adv_from_rp = np.zeros((N, k), dtype=np.float64)
-    l_adv_from_rp = np.zeros(N, dtype=np.float64)
-    for p in range(1, k + 1):
-        E_rp = os.expected_orderstats_known_rank_position(x, p)
-        l_rp = os.expected_lstat_known_rank_position(x, a, p)
-        probs = os.B[:, p - 1][inv]
-        adv_from_rp += probs[:, None] * (E_rp - E_loo)
-        l_adv_from_rp += probs * (l_rp - l_loo)
-
-    np.testing.assert_allclose(adv_from_rp, os.expected_orderstats_advantage(x), atol=1e-12, rtol=1e-12)
-    np.testing.assert_allclose(l_adv_from_rp, os.expected_lstat_advantage(x, a), atol=1e-12, rtol=1e-12)

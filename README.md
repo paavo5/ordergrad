@@ -145,7 +145,7 @@ Each backend exposes an `OrderStatTransform` class with:
 - `expected_lstat_leave_one_out(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
 - `expected_lstat_advantage(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
 - `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto") -> (N,k)`
-- `expected_orderstats_known_rank_position(x, p) -> (N,k)` and `expected_lstat_known_rank_position(x, a, p) -> (N,)` for the known `(r,p)` conditioning variant (requires integer `k`)
+- `expected_orderstats_known_rp(r, p) -> (k)`, `expected_orderstats_inclusion_known_rp(r, p) -> (m,k)`, and `expected_orderstats_advantage_known_rp(r, p) -> (m,k)` for the known `(r,p)` with-replacement regime
 - `with_lstat_weights(a)` and `precompute_lstat(N, k, a, ...)` for preweighted L-stat transforms
 
 When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can run in the explicit pipeline:

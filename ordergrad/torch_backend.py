@@ -129,35 +129,74 @@ def precompute_W_leave_one_out(
     )
 
 
-def precompute_W_known_rank_position(
-    N: int, k: int, p: int, *, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
-) -> torch.Tensor:
-    """Weights for E[X_(j:k) | rank r included and has sample position p]."""
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
-    if not (1 <= p <= k):
-        raise ValueError("Require 1 <= p <= k")
-    device = device or torch.device("cpu")
+def _binom_tail_table(k: float, F: torch.Tensor, k_ord: int, *, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+    """T[t,j-1] = P(Bin(k,F_t) >= j), with t=0..m and j=1..k_ord."""
+    F = F.to(dtype=torch.float64, device=device)
+    s = torch.arange(0, k_ord + 1, dtype=torch.float64, device=device)[:, None]
+    logF = torch.where(F[None, :] > 0, torch.log(F[None, :]), torch.zeros_like(F[None, :]))
+    log1mF = torch.where(F[None, :] < 1, torch.log1p(-F[None, :]), torch.zeros_like(F[None, :]))
+    term1 = torch.where(s > 0, torch.where(F[None, :] > 0, s * logF, torch.full_like(s * logF, float("-inf"))), torch.zeros_like(s * logF))
+    term2 = torch.where((float(k) - s) > 0, torch.where(F[None, :] < 1, (float(k) - s) * log1mF, torch.full_like(s * logF, float("-inf"))), torch.zeros_like(s * logF))
+    logpmf = _log_choose(float(k), s) + term1 + term2
+    pmf = torch.exp(logpmf)
+    cols = [pmf[j:, :].sum(dim=0) for j in range(1, k_ord + 1)]
+    return torch.stack(cols, dim=1).to(dtype=dtype)
 
-    r = torch.arange(1, N + 1, device=device, dtype=torch.int64)[:, None, None]
-    m = torch.arange(1, N + 1, device=device, dtype=torch.int64)[None, :, None]
-    j = torch.arange(1, k + 1, device=device, dtype=torch.int64)[None, None, :]
 
-    K = torch.zeros((N, N, k), dtype=dtype, device=device)
+def known_rp_orderstats(
+    r: torch.Tensor,
+    p: torch.Tensor,
+    k: float,
+    *,
+    dtype: torch.dtype = torch.float64,
+    device: Optional[torch.device] = None,
+):
+    """Exact known-(r,p) with-replacement order-statistics quantities."""
+    device = device or (r.device if isinstance(r, torch.Tensor) else torch.device("cpu"))
+    r = torch.as_tensor(r, dtype=torch.float64, device=device)
+    p = torch.as_tensor(p, dtype=torch.float64, device=device)
+    if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
+        raise ValueError("r and p must be 1D arrays of equal length")
+    if torch.any(p < 0):
+        raise ValueError("p must be nonnegative")
+    p = p / p.sum()
+    m = int(r.shape[0])
+    k_eff = float(k)
+    k_ord = int(k_eff // 1)
+    if not (k_eff >= 1):
+        raise ValueError("Require real k >= 1")
+    if k_ord < 1:
+        raise ValueError("floor(k) must be >= 1")
 
-    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
-    log_low = _log_choose(m - 1, j - 1) + _log_choose(r - m - 1, (p - 1) - j) - _log_choose(r - 1, p - 1)
-    log_low = torch.where(valid_low, log_low, torch.full_like(log_low, float("-inf")))
-    K = torch.where(valid_low, torch.exp(log_low).to(dtype=dtype), K)
+    perm = torch.argsort(r, stable=True)
+    rs = r[perm]
+    ps = p[perm]
+    inv = torch.empty_like(perm)
+    inv[perm] = torch.arange(m, device=device, dtype=perm.dtype)
 
-    K[:, :, p - 1] = (m[:, :, 0] == r[:, :, 0]).to(dtype=dtype)
+    F = torch.cat([torch.tensor([0.0], dtype=torch.float64, device=device), torch.cumsum(ps, dim=0)], dim=0)
+    T_k = _binom_tail_table(k_eff, F, k_ord, dtype=dtype, device=device)
+    W = T_k[1:, :] - T_k[:-1, :]
+    v = rs @ W
 
-    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
-    q = j - p
-    log_high = _log_choose(m - r - 1, q - 1) + _log_choose(N - m, (k - p) - q) - _log_choose(N - r, k - p)
-    log_high = torch.where(valid_high, log_high, torch.full_like(log_high, float("-inf")))
-    K = torch.where(valid_high, torch.exp(log_high).to(dtype=dtype), K)
-    return K
+    T_km1 = _binom_tail_table(k_eff - 1.0, F, k_ord, dtype=dtype, device=device)
+    q_sorted = []
+    ar = torch.arange(m + 1, device=device)
+    for b in range(m):
+        delta = torch.cat([torch.tensor([0], dtype=torch.int64, device=device), (rs[b] <= rs).to(torch.int64)], dim=0)
+        cols = []
+        for jv in range(1, k_ord + 1):
+            need = jv - delta
+            idx = torch.clamp(need - 1, 0, k_ord - 1)
+            take = T_km1[ar, idx]
+            col = torch.where(need <= 0, torch.ones_like(need, dtype=torch.float64), torch.where(need <= k_ord, take, torch.zeros_like(need, dtype=torch.float64)))
+            cols.append(col)
+        Q = torch.stack(cols, dim=1)
+        Wq = Q[1:, :] - Q[:-1, :]
+        q_sorted.append(rs @ Wq)
+    q_sorted = torch.stack(q_sorted, dim=0).to(dtype=dtype)
+    adv_sorted = q_sorted - v.unsqueeze(0)
+    return v.to(dtype=dtype), q_sorted[inv, :], adv_sorted[inv, :]
 
 
 @dataclass(frozen=True)
@@ -415,19 +454,32 @@ class OrderStatTransform:
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
 
-    def expected_orderstats_known_rank_position(self, x: torch.Tensor, p: int) -> torch.Tensor:
-        """Return E[X_(j:k) | i included and has sample position p] for all i."""
-        if self.k_eff != float(self.k):
-            raise ValueError("known (r,p) variant requires integer k (fractional k is not supported for known (r,p)).")
-        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype, device=self.W.device)
-        x_sorted, inv = self._sort_with_inverse_rank(x)
-        return torch.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+    def expected_orderstats_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+        v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
+        return v
 
-    def expected_lstat_known_rank_position(self, x: torch.Tensor, a: torch.Tensor, p: int) -> torch.Tensor:
-        """Return E[T(S) | i included and has sample position p] for all i."""
+    def expected_orderstats_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+        _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
+        return q
+
+    def expected_orderstats_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+        _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
+        return adv
+
+    def expected_lstat_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        return self.expected_orderstats_known_rank_position(x, p) @ a
+        return self.expected_orderstats_known_rp(r, p) @ a
+
+    def expected_lstat_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+
+    def expected_lstat_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_advantage_known_rp(r, p) @ a
 
     def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[torch.Tensor] = None, *, method: str = "efficient") -> torch.Tensor:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:

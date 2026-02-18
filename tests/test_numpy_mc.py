@@ -110,79 +110,58 @@ def test_leave_one_out_orderstats_matches_monte_carlo():
         _assert_close_mc(E_loo[i], mc_mean, mc_std, T, scale)
 
 
-def _mc_orderstats_known_rank_position(x: np.ndarray, i: int, k: int, p: int, T: int, rng: np.random.Generator):
-    N = x.shape[0]
-    if not (1 <= p <= k):
-        raise ValueError("p must satisfy 1 <= p <= k")
-
-    perm = np.argsort(x, kind="mergesort")
-    r = int(np.where(perm == i)[0][0]) + 1
-
-    lower = perm[: r - 1]
-    upper = perm[r:]
-
-    n_low = p - 1
-    n_high = k - p
-
-    if n_low > lower.size or n_high > upper.size:
-        return np.full((k,), np.nan), np.full((k,), np.nan)
-
-    vals = np.empty((T, k), dtype=np.float64)
-    for t in range(T):
-        chosen_low = rng.choice(lower, size=n_low, replace=False) if n_low > 0 else np.empty((0,), dtype=np.int64)
-        chosen_high = rng.choice(upper, size=n_high, replace=False) if n_high > 0 else np.empty((0,), dtype=np.int64)
-        subset = np.concatenate([chosen_low, np.array([i], dtype=np.int64), chosen_high])
-        vals[t] = np.sort(x[subset])
-
-    return vals.mean(axis=0), vals.std(axis=0, ddof=1)
+def _sample_known_rp_batch(r: np.ndarray, p: np.ndarray, N: int, rng: np.random.Generator) -> np.ndarray:
+    arms = rng.choice(len(r), size=N, replace=True, p=p)
+    return r[arms], arms
 
 
-def test_known_rank_position_matches_monte_carlo_and_recovers_inclusion():
-    N, k, T, seed = 26, 7, 8000, 777
-    rng = np.random.default_rng(seed)
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+def test_known_rp_matches_monte_carlo_unconditional_and_conditional():
+    rng = np.random.default_rng(777)
+    r = np.array([-1.2, -0.2, 0.8, 2.3], dtype=np.float64)
+    p = np.array([0.15, 0.35, 0.30, 0.20], dtype=np.float64)
+    k = 4
+    T = 30000
 
-    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-    E_inc = os.expected_orderstats_inclusion(x)
+    os = OrderStatTransform.precompute(20, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    v = os.expected_orderstats_known_rp(r, p)
+    q = os.expected_orderstats_inclusion_known_rp(r, p)
 
-    perm = np.argsort(x, kind="mergesort")
-    inv = np.empty(N, dtype=np.int64)
-    inv[perm] = np.arange(N, dtype=np.int64)
+    keys = rng.choice(len(r), size=(T, k), replace=True, p=p)
+    samples = np.sort(r[keys], axis=1)
+    mc_v = samples.mean(axis=0)
+    mc_v_std = samples.std(axis=0, ddof=1)
+    _assert_close_mc(v, mc_v, mc_v_std, T, scale=float(np.ptp(r) + 1.0), nsig=7.0)
 
-    scale = float(np.ptp(x) + 1.0)
-    i_list = [0, N // 2, N - 1]
-
-    for i in i_list:
-        recon_i = np.zeros((k,), dtype=np.float64)
-        r = inv[i] + 1
-        for p in range(1, k + 1):
-            prob = os.B[r - 1, p - 1]
-            if prob < 1e-15:
-                continue
-            analytic = os.expected_orderstats_known_rank_position(x, p)[i]
-            mc_mean, mc_std = _mc_orderstats_known_rank_position(x, i, k, p, T, rng)
-            _assert_close_mc(analytic, mc_mean, mc_std, T, scale, nsig=6.0)
-            recon_i += prob * analytic
-
-        np.testing.assert_allclose(recon_i, E_inc[i], atol=1e-12, rtol=1e-12)
+    for b in range(len(r)):
+        keys_b = rng.choice(len(r), size=(T, k - 1), replace=True, p=p)
+        samp_b = np.sort(np.concatenate([np.full((T, 1), r[b]), r[keys_b]], axis=1), axis=1)
+        mc_q = samp_b.mean(axis=0)
+        mc_q_std = samp_b.std(axis=0, ddof=1)
+        _assert_close_mc(q[b], mc_q, mc_q_std, T, scale=float(np.ptp(r) + 1.0), nsig=7.0)
 
 
-def test_advantage_monte_carlo_matches_exact_for_lstat():
-    N, k, T, seed = 24, 6, 9000, 888
-    rng = np.random.default_rng(seed)
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=k).astype(np.float64)
+def test_batch_advantage_matches_known_rp_advantage_in_expectation():
+    rng = np.random.default_rng(888)
+    r = np.array([-1.0, 0.0, 0.7, 1.9], dtype=np.float64)
+    p = np.array([0.20, 0.30, 0.35, 0.15], dtype=np.float64)
+    N, k, B = 24, 5, 1200
 
-    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_batch = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_known = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    adv_exact = os_known.expected_orderstats_advantage_known_rp(r, p)  # (m,k)
 
-    analytic_adv = os.expected_lstat_advantage(x, a)
+    sum_adv = np.zeros_like(adv_exact)
+    cnt = np.zeros((len(r), 1), dtype=np.int64)
 
-    scale = float(np.ptp(x) + 1.0)
-    for i in [0, N // 2, N - 1]:
-        mc_inc_mean, mc_inc_std = _mc_orderstats_cond_include(x, i, k, T, rng)
-        mc_loo_mean, mc_loo_std = _mc_orderstats_leave_one_out(x, i, k, T, rng)
+    for _ in range(B):
+        x, arms = _sample_known_rp_batch(r, p, N, rng)
+        adv_i = os_batch.expected_orderstats_advantage(x)  # (N,k)
+        for b in range(len(r)):
+            mask = arms == b
+            if np.any(mask):
+                sum_adv[b] += adv_i[mask].sum(axis=0)
+                cnt[b, 0] += int(mask.sum())
 
-        mc_adv_mean = (mc_inc_mean - mc_loo_mean) @ a
-        mc_adv_std = np.sqrt((mc_inc_std @ np.abs(a)) ** 2 + (mc_loo_std @ np.abs(a)) ** 2)
-
-        _assert_close_mc(np.array([analytic_adv[i]]), np.array([mc_adv_mean]), np.array([mc_adv_std]), T, scale, nsig=7.0)
+    est = sum_adv / np.maximum(cnt, 1)
+    # Monte Carlo tolerance
+    np.testing.assert_allclose(est, adv_exact, atol=0.08, rtol=0.08)

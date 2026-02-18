@@ -74,9 +74,8 @@ def _build_weight_matrix(
 
 def precompute_W_unconditional(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> np.ndarray:
@@ -84,20 +83,21 @@ def precompute_W_unconditional(
 
     Shape: (N,k). Columns sum to 1.
     """
-    if not (isinstance(k, int) and 1 <= k <= N):
-        raise ValueError("Require integer k with 1 <= k <= N")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N):
+        raise ValueError("Require real k with 1 <= k <= N")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N), k_eff)  # log C(N,kappa)
+    log_den = _log_choose(float(N), k_eff)  # log C(N,k)
 
     def log_term(m, j):
         return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     return _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         log_term,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=True,
@@ -106,9 +106,8 @@ def precompute_W_unconditional(
 
 def precompute_ABC_conditional_including_rank(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -116,11 +115,12 @@ def precompute_ABC_conditional_including_rank(
 
     These correspond to the three cases in the conditional pmf given inclusion of rank r.
     """
-    if not (isinstance(k, int) and 1 <= k <= N):
-        raise ValueError("Require integer k with 1 <= k <= N")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N):
+        raise ValueError("Require real k with 1 <= k <= N")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N - 1), k_eff - 1.0)  # log C(N-1,kappa-1)
+    log_den = _log_choose(float(N - 1), k_eff - 1.0)  # log C(N-1,k-1)
 
     def logA(m, j):
         # m<r case weights
@@ -135,28 +135,28 @@ def precompute_ABC_conditional_including_rank(
         return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
     A = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logA,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
     )
     B = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logB,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
     )
     C = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logC,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
@@ -166,9 +166,8 @@ def precompute_ABC_conditional_including_rank(
 
 def precompute_W_leave_one_out(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> np.ndarray:
@@ -176,67 +175,112 @@ def precompute_W_leave_one_out(
 
     Shape: (N-1,k). Columns sum to 1. Requires k <= N-1.
     """
-    if not (isinstance(k, int) and 1 <= k <= N - 1):
-        raise ValueError("Require integer k with 1 <= k <= N-1 for leave-one-out")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N - 1):
+        raise ValueError("Require real k with 1 <= k <= N-1 for leave-one-out")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N - 1), k_eff)  # log C(N-1,kappa)
+    log_den = _log_choose(float(N - 1), k_eff)  # log C(N-1,k)
 
     def log_term(p, j):
         return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k_eff - j)
 
     return _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         log_term,
-        out_shape=(N - 1, k),
+        out_shape=(N - 1, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=True,
     )
 
 
-def precompute_W_known_rank_position(N: int, k: int, p: int, *, dtype=np.float64) -> np.ndarray:
-    """Weights for E[X_(j:k) | rank r included and has sample position p].
+def _binom_tail_table(k: float, F: np.ndarray, k_ord: int, *, dtype=np.float64) -> np.ndarray:
+    """T[t,j-1] = P(Bin(k,F_t) >= j), with t=0..m and j=1..k_ord."""
+    F = np.asarray(F, dtype=np.float64)
+    s = np.arange(0, k_ord + 1, dtype=np.float64)[:, None]  # (k_ord+1,1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logF = np.where(F[None, :] > 0, np.log(F[None, :]), 0.0)
+        log1mF = np.where(F[None, :] < 1, np.log1p(-F[None, :]), 0.0)
+        term1 = np.where(s > 0, np.where(F[None, :] > 0, s * logF, -np.inf), 0.0)
+        term2 = np.where((float(k) - s) > 0, np.where(F[None, :] < 1, (float(k) - s) * log1mF, -np.inf), 0.0)
+        logpmf = _log_choose(float(k), s) + term1 + term2
+    pmf = np.exp(logpmf)  # (k_ord+1, m+1)
+    cols = [pmf[j:, :].sum(axis=0) for j in range(1, k_ord + 1)]
+    return np.stack(cols, axis=1).astype(dtype, copy=False)
 
-    Returns tensor K of shape (N, N, k) indexed by (r-1, m-1, j-1).
+
+def known_rp_orderstats(
+    r: np.ndarray,
+    p: np.ndarray,
+    k: float,
+    *,
+    return_sorted: bool = False,
+    dtype=np.float64,
+):
+    """Exact known-(r,p) with-replacement order-statistics quantities.
+
+    Returns tuple (v, q, adv):
+      - v: (k_ord,) unconditional E[X_(j:k)]
+      - q: (m,k_ord) conditional E[X_(j:k) | A1=b]
+      - adv: (m,k_ord) = q - v
+    where k_ord = floor(k).
     """
-    if not (isinstance(k, int) and 1 <= k <= N):
-        raise ValueError("Require integer k with 1 <= k <= N")
-    if not (isinstance(p, int) and 1 <= p <= k):
-        raise ValueError("Require integer p with 1 <= p <= k")
+    r = np.asarray(r, dtype=np.float64)
+    p = np.asarray(p, dtype=np.float64)
+    if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
+        raise ValueError("r and p must be 1D arrays of equal length")
+    if np.any(p < 0):
+        raise ValueError("p must be nonnegative")
+    ps = p.sum()
+    if not np.isfinite(ps) or ps <= 0:
+        raise ValueError("sum(p) must be positive and finite")
+    p = p / ps
 
-    r = np.arange(1, N + 1, dtype=np.int64)[:, None, None]
-    m = np.arange(1, N + 1, dtype=np.int64)[None, :, None]
-    j = np.arange(1, k + 1, dtype=np.int64)[None, None, :]
+    m = r.shape[0]
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
+    if not (1 <= k_eff):
+        raise ValueError("Require real k >= 1")
+    if k_ord < 1:
+        raise ValueError("floor(k) must be >= 1")
 
-    K = np.zeros((N, N, k), dtype=dtype)
+    perm = np.argsort(r, kind="mergesort")
+    inv = np.empty_like(perm)
+    inv[perm] = np.arange(m, dtype=perm.dtype)
+    rs = r[perm]
+    ps = p[perm]
 
-    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
-    with np.errstate(invalid="ignore"):
-        log_low = (
-            _log_choose(m - 1, j - 1)
-            + _log_choose(r - m - 1, (p - 1) - j)
-            - _log_choose(r - 1, p - 1)
-        )
-    w_low = np.zeros_like(log_low, dtype=dtype)
-    w_low[valid_low] = np.exp(log_low[valid_low]).astype(dtype, copy=False)
-    K = np.where(valid_low, w_low, K)
+    F = np.concatenate([np.array([0.0], dtype=np.float64), np.cumsum(ps)])  # (m+1,)
+    T_k = _binom_tail_table(k_eff, F, k_ord, dtype=dtype)  # (m+1,k_ord)
+    W = T_k[1:, :] - T_k[:-1, :]
+    v = rs @ W
 
-    K[:, :, p - 1] = (m[:, :, 0] == r[:, :, 0]).astype(dtype)
+    T_km1 = _binom_tail_table(k_eff - 1.0, F, k_ord, dtype=dtype)
 
-    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
-    q = j - p
-    with np.errstate(invalid="ignore"):
-        log_high = (
-            _log_choose(m - r - 1, q - 1)
-            + _log_choose(N - m, (k - p) - q)
-            - _log_choose(N - r, k - p)
-        )
-    w_high = np.zeros_like(log_high, dtype=dtype)
-    w_high[valid_high] = np.exp(log_high[valid_high]).astype(dtype, copy=False)
-    K = np.where(valid_high, w_high, K)
-    return K
+    q_sorted = np.empty((m, k_ord), dtype=dtype)
+    for b in range(m):
+        delta = np.concatenate([np.array([0], dtype=np.int64), (rs[b] <= rs).astype(np.int64)])
+        Q = np.zeros((m + 1, k_ord), dtype=np.float64)
+        rows = np.arange(m + 1)
+        for j in range(1, k_ord + 1):
+            need = j - delta
+            idx = np.clip(need - 1, 0, k_ord - 1)
+            take = T_km1[rows, idx]
+            col = np.where(need <= 0, 1.0, np.where(need <= k_ord, take, 0.0))
+            Q[:, j - 1] = col
+        Wq = Q[1:, :] - Q[:-1, :]
+        q_sorted[b, :] = rs @ Wq
+
+    adv_sorted = q_sorted - v[None, :]
+    if return_sorted:
+        return v.astype(dtype, copy=False), q_sorted.astype(dtype, copy=False), adv_sorted.astype(dtype, copy=False), perm, inv
+    return (
+        v.astype(dtype, copy=False),
+        q_sorted[inv, :].astype(dtype, copy=False),
+        adv_sorted[inv, :].astype(dtype, copy=False),
+    )
 
 
 # -----------------------------
@@ -255,7 +299,7 @@ class OrderStatTransform:
 
     N: int
     k: int
-    kappa: float
+    k_eff: float
     W: np.ndarray  # (N,k)
     A: Optional[np.ndarray]  # (N,k)
     B: Optional[np.ndarray]  # (N,k)
@@ -286,38 +330,42 @@ class OrderStatTransform:
     def precompute(
         cls,
         N: int,
-        k: int,
+        k: float,
         *,
         dtype=np.float64,
         chunk_size: Optional[int] = None,
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
-        kappa: Optional[float] = None,
     ):
-        k_eff = float(k if kappa is None else kappa)
-        W = precompute_W_unconditional(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
+        k_eff = float(k)
+        k_ord = int(np.floor(k_eff))
+        if not (1 <= k_eff <= N):
+            raise ValueError("Require real k with 1 <= k <= N")
+        if not (1 <= k_ord <= N):
+            raise ValueError("floor(k) must satisfy 1 <= floor(k) <= N")
+        W = precompute_W_unconditional(N, k_eff, dtype=dtype, chunk_size=chunk_size)
 
         A = B = C = None
         if compute_conditional:
             A, B, C = precompute_ABC_conditional_including_rank(
-                N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size
+                N, k_eff, dtype=dtype, chunk_size=chunk_size
             )
 
         Wm = None
         if compute_leave_one_out:
-            if k > N - 1:
-                raise ValueError("Leave-one-out requires k <= N-1")
-            Wm = precompute_W_leave_one_out(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
+            if k_eff > N - 1:
+                raise ValueError("Leave-one-out requires real k <= N-1")
+            Wm = precompute_W_leave_one_out(N, k_eff, dtype=dtype, chunk_size=chunk_size)
 
         M_inc = M_loo = M_adv = None
         if compute_dense_matrices:
             M_inc = cls._build_dense_inclusion_matrix(A, B, C) if (A is not None and B is not None and C is not None) else None
-            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k) if Wm is not None else None
+            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k_ord) if Wm is not None else None
             if M_inc is not None and M_loo is not None:
                 M_adv = M_inc - M_loo
 
-        return cls(N=N, k=k, kappa=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+        return cls(N=N, k=k_ord, k_eff=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
         """Return a new transform with preweighted L-statistic coefficients."""
@@ -333,7 +381,7 @@ class OrderStatTransform:
         return OrderStatTransform(
             N=self.N,
             k=self.k,
-            kappa=self.kappa,
+            k_eff=self.k_eff,
             W=self.W,
             A=self.A,
             B=self.B,
@@ -532,21 +580,32 @@ class OrderStatTransform:
             return np.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
-    def expected_orderstats_known_rank_position(self, x: np.ndarray, p: int) -> np.ndarray:
-        """Return E[X_(j:k) | i included and has sample position p] for all i.
+    def expected_orderstats_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Known-(r,p) exact unconditional order-statistics expectation. Shape (k,)."""
+        v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return v
 
-        Shape: (N,k). Requires integer (non-fractional) kappa.
-        """
-        if self.kappa != float(self.k):
-            raise ValueError("known (r,p) variant requires integer k (fractional kappa is not supported).")
-        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype)
-        x_sorted, inv = self._sort_with_inverse_rank(x)
-        return np.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+    def expected_orderstats_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Known-(r,p) exact conditional E[X_(j:k) | A1=b]. Shape (m,k)."""
+        _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return q
 
-    def expected_lstat_known_rank_position(self, x: np.ndarray, a: Optional[np.ndarray], p: int) -> np.ndarray:
-        """Return E[T(S) | i included and has sample position p] for all i. Shape (N,)."""
-        E_rp = self.expected_orderstats_known_rank_position(x, p)
-        return E_rp @ self._validate_a(a, self.k)
+    def expected_orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Known-(r,p) exact advantage q-v. Shape (m,k)."""
+        _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return adv
+
+    def expected_lstat_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> float:
+        a = self._validate_a(a, self.k)
+        return float(self.expected_orderstats_known_rp(r, p) @ a)
+
+    def expected_lstat_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
+        a = self._validate_a(a, self.k)
+        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+
+    def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
+        a = self._validate_a(a, self.k)
+        return self.expected_orderstats_advantage_known_rp(r, p) @ a
 
 
     def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
