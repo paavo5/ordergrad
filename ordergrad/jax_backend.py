@@ -47,32 +47,34 @@ def _build_weight_matrix(
     return W
 
 
-def precompute_W_unconditional(N: int, k: int, *, dtype=jnp.float64) -> jnp.ndarray:
+def precompute_W_unconditional(N: int, k: int, *, kappa: Optional[float] = None, dtype=jnp.float64) -> jnp.ndarray:
     """W[m-1,j-1] = P(X_(j:k) == x_(m)) for uniform k-subset from N."""
     if not (1 <= k <= N):
         raise ValueError("Require 1 <= k <= N")
-    log_den = _log_choose(N, k)
+    k_eff = float(k if kappa is None else kappa)
+    log_den = _log_choose(float(N), k_eff)
 
     def log_term(m, j):
-        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k - j)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     return _build_weight_matrix(N, k, log_den, log_term, dtype=dtype, renormalize_cols=True)
 
 
-def precompute_ABC_conditional_including_rank(N: int, k: int, *, dtype=jnp.float64) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def precompute_ABC_conditional_including_rank(N: int, k: int, *, kappa: Optional[float] = None, dtype=jnp.float64) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Precompute conditional matrices A,B,C (shape (N,k))."""
     if not (1 <= k <= N):
         raise ValueError("Require 1 <= k <= N")
-    log_den = _log_choose(N - 1, k - 1)
+    k_eff = float(k if kappa is None else kappa)
+    log_den = _log_choose(float(N - 1), k_eff - 1.0)
 
     def logA(m, j):
-        return _log_choose(m - 1, j - 1) + _log_choose(N - m - 1, k - j - 1)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m - 1, k_eff - j - 1.0)
 
     def logB(m, j):
-        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k - j)
+        return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     def logC(m, j):
-        return _log_choose(m - 2, j - 2) + _log_choose(N - m, k - j)
+        return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
     A = _build_weight_matrix(N, k, log_den, logA, dtype=dtype, renormalize_cols=False)
     B = _build_weight_matrix(N, k, log_den, logB, dtype=dtype, renormalize_cols=False)
@@ -80,14 +82,15 @@ def precompute_ABC_conditional_including_rank(N: int, k: int, *, dtype=jnp.float
     return A, B, C
 
 
-def precompute_W_leave_one_out(N: int, k: int, *, dtype=jnp.float64) -> jnp.ndarray:
+def precompute_W_leave_one_out(N: int, k: int, *, kappa: Optional[float] = None, dtype=jnp.float64) -> jnp.ndarray:
     """Wm for reduced population size (N-1). Shape (N-1,k), columns sum to 1."""
     if not (1 <= k <= N - 1):
         raise ValueError("Require 1 <= k <= N-1 for leave-one-out")
-    log_den = _log_choose(N - 1, k)
+    k_eff = float(k if kappa is None else kappa)
+    log_den = _log_choose(float(N - 1), k_eff)
 
     def log_term(p, j):
-        return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k - j)
+        return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k_eff - j)
 
     return _build_weight_matrix(N - 1, k, log_den, log_term, dtype=dtype, renormalize_cols=True)
 
@@ -129,6 +132,7 @@ class OrderStatTransform:
 
     N: int
     k: int
+    kappa: float
     W: jnp.ndarray
     A: Optional[jnp.ndarray]
     B: Optional[jnp.ndarray]
@@ -151,18 +155,20 @@ class OrderStatTransform:
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
+        kappa: Optional[float] = None,
     ) -> "OrderStatTransform":
-        W = precompute_W_unconditional(N, k, dtype=dtype)
+        k_eff = float(k if kappa is None else kappa)
+        W = precompute_W_unconditional(N, k, kappa=k_eff, dtype=dtype)
 
         A = B = C = None
         if compute_conditional:
-            A, B, C = precompute_ABC_conditional_including_rank(N, k, dtype=dtype)
+            A, B, C = precompute_ABC_conditional_including_rank(N, k, kappa=k_eff, dtype=dtype)
 
         Wm = None
         if compute_leave_one_out:
             if k > N - 1:
                 raise ValueError("Leave-one-out requires k <= N-1")
-            Wm = precompute_W_leave_one_out(N, k, dtype=dtype)
+            Wm = precompute_W_leave_one_out(N, k, kappa=k_eff, dtype=dtype)
 
         M_inc = M_loo = M_adv = None
         if compute_dense_matrices:
@@ -171,7 +177,7 @@ class OrderStatTransform:
             if M_inc is not None and M_loo is not None:
                 M_adv = M_inc - M_loo
 
-        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+        return cls(N=N, k=k, kappa=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     @staticmethod
     def _build_dense_inclusion_matrix(A: jnp.ndarray, B: jnp.ndarray, C: jnp.ndarray) -> jnp.ndarray:
@@ -300,6 +306,7 @@ class OrderStatTransform:
         out = self.__class__(
             N=self.N,
             k=self.k,
+            kappa=self.kappa,
             W=self.W,
             A=self.A,
             B=self.B,
@@ -380,6 +387,8 @@ class OrderStatTransform:
 
     def expected_orderstats_known_rank_position(self, x: jnp.ndarray, p: int) -> jnp.ndarray:
         """Return E[X_(j:k) | i included and has sample position p] for all i."""
+        if self.kappa != float(self.k):
+            raise ValueError("known (r,p) variant requires integer k (fractional kappa is not supported).")
         K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype)
         x_sorted, inv = self._sort_with_inverse_rank(x)
         return jnp.einsum("rmj,m->rj", K, x_sorted)[inv, :]

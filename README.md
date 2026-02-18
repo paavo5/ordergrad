@@ -136,7 +136,7 @@ print(g)
 
 Each backend exposes an `OrderStatTransform` class with:
 
-- `precompute(N, k, ..., compute_dense_matrices=False[, kappa=None])` (NumPy supports optional real `kappa`)
+- `precompute(N, k, ..., compute_dense_matrices=False, kappa=None)` (`kappa` is optional and can be real-valued on all backends)
 - `expected_orderstats(x) -> (k,)`
 - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
 - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)

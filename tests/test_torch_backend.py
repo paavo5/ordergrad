@@ -262,3 +262,40 @@ def test_torch_known_rank_position_matches_numpy_and_recovers_inclusion_and_adva
 
     np.testing.assert_allclose(rec_l_inc_np, os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(rec_l_inc_th, os_th.expected_lstat_inclusion(x_th, a_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_real_kappa_matches_integer_k_when_equal():
+    rng = np.random.default_rng(19)
+    N, k = 14, 5
+    x_np = _rand_x_no_ties(rng, N)
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+
+    os_int = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_real = TH.precompute(N, k, kappa=float(k), dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    np.testing.assert_allclose(os_real.expected_orderstats(x_th).detach().cpu().numpy(), os_int.expected_orderstats(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_inclusion(x_th).detach().cpu().numpy(), os_int.expected_orderstats_inclusion(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_leave_one_out(x_th).detach().cpu().numpy(), os_int.expected_orderstats_leave_one_out(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_real_kappa_fractional_is_supported_and_known_rp_rejected():
+    rng = np.random.default_rng(20)
+    N, k = 15, 6
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    os_frac = TH.precompute(N, k, kappa=5.4, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+
+    assert np.isfinite(os_frac.expected_orderstats(x_th).detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_leave_one_out(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy()).all()
+
+    with pytest.raises(ValueError, match=r"known \(r,p\) variant"):
+        os_frac.expected_orderstats_known_rank_position(x_th, 2)
