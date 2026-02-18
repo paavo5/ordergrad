@@ -87,3 +87,77 @@ def test_jax_lstat_and_advantage_match_numpy_with_and_without_preweights():
     np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_inclusion(x_jx)), np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_leave_one_out(x_jx)), np.asarray(os_jx.expected_lstat_leave_one_out(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_advantage(x_jx)), np.asarray(os_jx.expected_lstat_advantage(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.jax
+def test_jax_dense_matmul_variants_match_efficient_and_auto():
+    rng = np.random.default_rng(14)
+    N, k = 22, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    x_jx = jnp.asarray(x_np, dtype=jnp.float64)
+    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
+
+    dense = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+    nodense = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=False)
+
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="matmul")),
+        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_orderstats_leave_one_out(x_jx, method="matmul")),
+        np.asarray(dense.expected_orderstats_leave_one_out(x_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_orderstats_advantage(x_jx, method="matmul")),
+        np.asarray(dense.expected_orderstats_advantage(x_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="auto")),
+        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="matmul")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(nodense.expected_orderstats_inclusion(x_jx, method="matmul")),
+        np.asarray(nodense.expected_orderstats_inclusion(x_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_lstat_inclusion(x_jx, a_jx, method="matmul")),
+        np.asarray(dense.expected_lstat_inclusion(x_jx, a_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_lstat_leave_one_out(x_jx, a_jx, method="matmul")),
+        np.asarray(dense.expected_lstat_leave_one_out(x_jx, a_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(dense.expected_lstat_advantage(x_jx, a_jx, method="matmul")),
+        np.asarray(dense.expected_lstat_advantage(x_jx, a_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    dense_w = dense.with_lstat_weights(a_jx)
+    np.testing.assert_allclose(
+        np.asarray(dense_w.expected_lstat_advantage(x_jx, method="matmul")),
+        np.asarray(dense_w.expected_lstat_advantage(x_jx, method="efficient")),
+        rtol=1e-12,
+        atol=1e-12,
+    )

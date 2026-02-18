@@ -106,6 +106,12 @@ class OrderStatTransform:
     B: Optional[jnp.ndarray]
     C: Optional[jnp.ndarray]
     Wm: Optional[jnp.ndarray]
+    M_inc: Optional[jnp.ndarray] = None
+    M_loo: Optional[jnp.ndarray] = None
+    M_adv: Optional[jnp.ndarray] = None
+    M_inc_a: Optional[jnp.ndarray] = None
+    M_loo_a: Optional[jnp.ndarray] = None
+    M_adv_a: Optional[jnp.ndarray] = None
 
     @classmethod
     def precompute(
@@ -116,6 +122,7 @@ class OrderStatTransform:
         dtype=jnp.float64,
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
+        compute_dense_matrices: bool = False,
     ) -> "OrderStatTransform":
         W = precompute_W_unconditional(N, k, dtype=dtype)
 
@@ -129,7 +136,34 @@ class OrderStatTransform:
                 raise ValueError("Leave-one-out requires k <= N-1")
             Wm = precompute_W_leave_one_out(N, k, dtype=dtype)
 
-        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm)
+        M_inc = M_loo = M_adv = None
+        if compute_dense_matrices:
+            M_inc = cls._build_dense_inclusion_matrix(A, B, C) if (A is not None and B is not None and C is not None) else None
+            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k) if Wm is not None else None
+            if M_inc is not None and M_loo is not None:
+                M_adv = M_inc - M_loo
+
+        return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+
+    @staticmethod
+    def _build_dense_inclusion_matrix(A: jnp.ndarray, B: jnp.ndarray, C: jnp.ndarray) -> jnp.ndarray:
+        N, _ = A.shape
+        r = jnp.arange(N)[:, None]
+        m = jnp.arange(N)[None, :]
+        lt = (m < r)[:, :, None]
+        eq = (m == r)[:, :, None]
+        gt = (m > r)[:, :, None]
+        return lt * A[None, :, :] + eq * B[None, :, :] + gt * C[None, :, :]
+
+    @staticmethod
+    def _build_dense_leave_one_out_matrix(Wm: jnp.ndarray, N: int, k: int) -> jnp.ndarray:
+        M = jnp.zeros((N, N, k), dtype=Wm.dtype)
+        for r in range(N):
+            if r > 0:
+                M = M.at[r, :r, :].set(Wm[:r, :])
+            if r < N - 1:
+                M = M.at[r, r + 1 :, :].set(Wm[r:, :])
+        return M
 
     def _sort_with_inverse_rank(self, x: jnp.ndarray):
         x = jnp.asarray(x)
@@ -155,11 +189,16 @@ class OrderStatTransform:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
-    def expected_orderstats_inclusion(self, x: jnp.ndarray) -> jnp.ndarray:
-        if self.A is None or self.B is None or self.C is None:
-            raise ValueError("Conditional matrices A,B,C were not precomputed.")
+    def expected_orderstats_inclusion(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
         x_sorted, inv = self._sort_with_inverse_rank(x)
+        if method in {"matmul", "auto"} and self.M_inc is not None:
+            return jnp.einsum("rmj,m->rj", self.M_inc, x_sorted)[inv, :]
+
+        if self.A is None or self.B is None or self.C is None:
+            raise ValueError("Conditional matrices A,B,C were not precomputed.")
 
         XA = x_sorted[:, None] * self.A
         XC = x_sorted[:, None] * self.C
@@ -175,13 +214,18 @@ class OrderStatTransform:
         E_by_rank = prefA_excl + diag + suffC_excl
         return E_by_rank[inv, :]
 
-    def expected_orderstats_leave_one_out(self, x: jnp.ndarray) -> jnp.ndarray:
+    def expected_orderstats_leave_one_out(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
+
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+        if method in {"matmul", "auto"} and self.M_loo is not None:
+            return jnp.einsum("rmj,m->rj", self.M_loo, x_sorted)[inv, :]
+
         if self.Wm is None:
             raise ValueError("Leave-one-out matrix Wm was not precomputed.")
         if self.k > self.N - 1:
             raise ValueError("Leave-one-out requires k <= N-1")
-
-        x_sorted, inv = self._sort_with_inverse_rank(x)
         u = x_sorted[:-1]
         v = x_sorted[1:]
 
@@ -225,7 +269,18 @@ class OrderStatTransform:
         a = jnp.asarray(a)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        out = self.__class__(N=self.N, k=self.k, W=self.W, A=self.A, B=self.B, C=self.C, Wm=self.Wm)
+        out = self.__class__(
+            N=self.N,
+            k=self.k,
+            W=self.W,
+            A=self.A,
+            B=self.B,
+            C=self.C,
+            Wm=self.Wm,
+            M_inc=self.M_inc,
+            M_loo=self.M_loo,
+            M_adv=self.M_adv,
+        )
         object.__setattr__(out, "Wa", self.W @ a)
         if self.A is not None and self.B is not None and self.C is not None:
             object.__setattr__(out, "Aa", self.A @ a)
@@ -236,13 +291,16 @@ class OrderStatTransform:
             object.__setattr__(out, "Ba", None)
             object.__setattr__(out, "Ca", None)
         object.__setattr__(out, "Wma", self.Wm @ a if self.Wm is not None else None)
+        object.__setattr__(out, "M_inc_a", jnp.tensordot(self.M_inc, a, axes=([2], [0])) if self.M_inc is not None else None)
+        object.__setattr__(out, "M_loo_a", jnp.tensordot(self.M_loo, a, axes=([2], [0])) if self.M_loo is not None else None)
+        object.__setattr__(out, "M_adv_a", jnp.tensordot(self.M_adv, a, axes=([2], [0])) if self.M_adv is not None else None)
         return out
 
     @classmethod
     def precompute_lstat(cls, N: int, k: int, a: jnp.ndarray, **kwargs) -> "OrderStatTransform":
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
-    def expected_lstat_inclusion(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+    def expected_lstat_inclusion(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
         if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             xa = x_sorted * self.Aa
@@ -252,7 +310,10 @@ class OrderStatTransform:
             pref_c = jnp.cumsum(xc, axis=0)
             inc = pref_a_excl + (x_sorted * self.Ba) + (pref_c[-1] - pref_c)
             return inc[inv]
-        E_inc = self.expected_orderstats_inclusion(x)
+        if method in {"matmul", "auto"} and self.M_inc_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_inc_a @ x_sorted)[inv]
+        E_inc = self.expected_orderstats_inclusion(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = jnp.asarray(a)
@@ -260,7 +321,7 @@ class OrderStatTransform:
             raise ValueError(f"a must be shape ({self.k},)")
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+    def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
         if a is None and hasattr(self, "Wma") and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             p1 = x_sorted[:-1] * self.Wma
@@ -270,7 +331,10 @@ class OrderStatTransform:
             pref2 = jnp.cumsum(p2, axis=0)
             right = pref2[-1] - jnp.concatenate([jnp.zeros((1,), dtype=p2.dtype), pref2], axis=0)
             return (left + right)[inv]
-        E_loo = self.expected_orderstats_leave_one_out(x)
+        if method in {"matmul", "auto"} and self.M_loo_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_loo_a @ x_sorted)[inv]
+        E_loo = self.expected_orderstats_leave_one_out(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = jnp.asarray(a)
@@ -278,9 +342,17 @@ class OrderStatTransform:
             raise ValueError(f"a must be shape ({self.k},)")
         return E_loo @ a
 
-    def expected_orderstats_advantage(self, x: jnp.ndarray) -> jnp.ndarray:
-        return self.expected_orderstats_inclusion(x) - self.expected_orderstats_leave_one_out(x)
+    def expected_orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+        if method not in {"efficient", "matmul", "auto"}:
+            raise ValueError("method must be one of {'efficient','matmul','auto'}")
+        if method in {"matmul", "auto"} and self.M_adv is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
+        return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
-    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
-        return self.expected_lstat_inclusion(x, a) - self.expected_lstat_leave_one_out(x, a)
+    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
+        if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return (self.M_adv_a @ x_sorted)[inv]
+        return self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
 
