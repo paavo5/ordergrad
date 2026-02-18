@@ -60,3 +60,30 @@ def test_jax_gradient_matches_rank_weights():
     w = np.asarray(os_jx.lstat_weight_by_item(x, a))
 
     np.testing.assert_allclose(grad, w, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.jax
+def test_jax_lstat_and_advantage_match_numpy_with_and_without_preweights():
+    rng = np.random.default_rng(12)
+    N, k = 30, 6
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    x_jx = jnp.asarray(x_np, dtype=jnp.float64)
+    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
+
+    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat(x_jx, a_jx)), os_np.expected_lstat(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_leave_one_out(x_jx, a_jx)), os_np.expected_lstat_leave_one_out(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_advantage(x_jx)), os_np.expected_orderstats_advantage(x_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_advantage(x_jx, a_jx)), os_np.expected_lstat_advantage(x_np, a_np), rtol=1e-12, atol=1e-12)
+
+    # Preweighted path should match explicit-a path.
+    os_jx_w = os_jx.with_lstat_weights(a_jx)
+    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat(x_jx)), np.asarray(os_jx.expected_lstat(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_inclusion(x_jx)), np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_leave_one_out(x_jx)), np.asarray(os_jx.expected_lstat_leave_one_out(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_advantage(x_jx)), np.asarray(os_jx.expected_lstat_advantage(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
