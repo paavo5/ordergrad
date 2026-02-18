@@ -15,9 +15,12 @@ Implemented with a shared API in **NumPy**, **PyTorch**, and **JAX**.
 
 Given an order-statistic index `j` and subset/sample size parameter `k`:
 
-- `v_j`: unconditional expected order statistic,
-- `q`: inclusion-conditioned expected order statistic,
-- `a = q - v`: advantage-style difference.
+- Draw `k` members (according to the regime: with replacement for known `(r,p)`, without replacement from a fixed batch for batch mode).
+- Sort the resulting `k` values from smallest to largest.
+- The **`j`-th order statistic** is the `j`-th ranked value in that sorted list.
+- `v_j` is the expectation of that `j`-th ranked value.
+- `q` is the inclusion-conditioned analogue (conditioning on a specific arm/index being included/observed first, depending on regime).
+- `a = q - v` is the corresponding advantage-style difference.
 
 For L-statistics with weights `alpha`:
 
