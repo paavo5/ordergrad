@@ -67,19 +67,20 @@ def test_torch_advantage_detach_flag_controls_gradient_flow():
 
     os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
     a_th = torch.tensor(a_np, dtype=torch.float64)
+    c_th = torch.tensor(rng.normal(size=N), dtype=torch.float64)
 
     x_det = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
-    y_det = os_th.expected_lstat_advantage(x_det, a_th, detach_advantage=True).sum()
-    y_det.backward()
-    g_det = x_det.grad.detach().cpu().numpy()
+    y_det = torch.dot(c_th, os_th.expected_lstat_advantage(x_det, a_th, detach_advantage=True))
+    assert not y_det.requires_grad
+    with pytest.raises(RuntimeError, match="does not require grad"):
+        y_det.backward()
 
     x_att = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
-    y_att = os_th.expected_lstat_advantage(x_att, a_th, detach_advantage=False).sum()
+    y_att = torch.dot(c_th, os_th.expected_lstat_advantage(x_att, a_th, detach_advantage=False))
     y_att.backward()
     g_att = x_att.grad.detach().cpu().numpy()
 
-    np.testing.assert_allclose(g_det, np.zeros_like(g_det), atol=1e-12, rtol=1e-12)
-    assert not np.allclose(g_att, 0.0, atol=1e-12, rtol=1e-12)
+    assert not np.allclose(g_att, 0.0, atol=1e-10, rtol=1e-10)
 
 
 @pytest.mark.torch

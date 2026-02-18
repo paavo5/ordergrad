@@ -72,12 +72,13 @@ def test_jax_advantage_detach_flag_controls_gradient_flow():
     os_jx = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
     x = jnp.asarray(x_np, dtype=jnp.float64)
     a = jnp.asarray(a_np, dtype=jnp.float64)
+    c = jnp.asarray(rng.normal(size=N), dtype=jnp.float64)
 
-    g_det = np.asarray(jax.grad(lambda z: jnp.sum(os_jx.expected_lstat_advantage(z, a, detach_advantage=True)))(x))
-    g_att = np.asarray(jax.grad(lambda z: jnp.sum(os_jx.expected_lstat_advantage(z, a, detach_advantage=False)))(x))
+    g_det = np.asarray(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=True)))(x))
+    g_att = np.asarray(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=False)))(x))
 
     np.testing.assert_allclose(g_det, np.zeros_like(g_det), atol=1e-12, rtol=1e-12)
-    assert not np.allclose(g_att, 0.0, atol=1e-12, rtol=1e-12)
+    assert not np.allclose(g_att, 0.0, atol=1e-10, rtol=1e-10)
 
 
 @pytest.mark.jax
