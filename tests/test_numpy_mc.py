@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from orderstat_reward.numpy_backend import OrderStatTransform
+from ordergrad.numpy_backend import OrderStatTransform
 
 
 def _uniform_k_subset_indices(N: int, k: int, T: int, rng: np.random.Generator) -> np.ndarray:

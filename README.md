@@ -58,11 +58,11 @@ pip install -e ".[dev]"     # pytest
 
 ### Important: optional imports
 
-`orderstat_reward` is designed so that you can install **only what you use**:
+`ordergrad` is designed so that you can install **only what you use**:
 
-- `import orderstat_reward` requires **NumPy only**
-- PyTorch is imported only if you import `orderstat_reward.torch_backend` (or `get_backend("torch")`)
-- JAX is imported only if you import `orderstat_reward.jax_backend` (or `get_backend("jax")`)
+- `import ordergrad` requires **NumPy only**
+- PyTorch is imported only if you import `ordergrad.torch_backend` (or `get_backend("torch")`)
+- JAX is imported only if you import `ordergrad.jax_backend` (or `get_backend("jax")`)
 
 
 ## Quick start
@@ -71,7 +71,7 @@ pip install -e ".[dev]"     # pytest
 
 ```python
 import numpy as np
-from orderstat_reward import numpy_backend
+from ordergrad import numpy_backend
 
 N, k = 30, 8
 os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
@@ -97,7 +97,7 @@ adv = os.expected_lstat_advantage(x, a)          # (N,) == per_item_inc - per_it
 
 ```python
 import torch
-from orderstat_reward import torch_backend
+from ordergrad import torch_backend
 
 N, k = 30, 8
 os = torch_backend.OrderStatTransform.precompute(N, k, dtype=torch.float64)
@@ -117,7 +117,7 @@ print(x.grad)
 ```python
 import jax
 import jax.numpy as jnp
-from orderstat_reward import jax_backend
+from ordergrad import jax_backend
 
 jax.config.update("jax_enable_x64", True)
 
@@ -136,21 +136,19 @@ print(g)
 
 Each backend exposes an `OrderStatTransform` class with:
 
-- `precompute(N, k, ...)`
+- `precompute(N, k, ..., compute_dense_matrices=False, kappa=None)`
 - `expected_orderstats(x) -> (k,)`
-- `expected_orderstats_inclusion(x) -> (N,k)`
-- `expected_orderstats_leave_one_out(x) -> (N,k)` (requires `k <= N-1`)
+- `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto") -> (N,k)`
+- `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto") -> (N,k)` (requires `k <= N-1`)
 - `expected_lstat(x, a) -> scalar`
-- `expected_lstat_inclusion(x, a) -> (N,)`
-- `expected_lstat_leave_one_out(x, a) -> (N,)`
-- `expected_lstat_advantage(x, a) -> (N,)`
+- `expected_lstat_inclusion(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_lstat_leave_one_out(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_lstat_advantage(x, a, method="efficient"|"matmul"|"auto") -> (N,)`
+- `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto") -> (N,k)`
+- `with_lstat_weights(a)` and `precompute_lstat(N, k, a, ...)` for preweighted L-stat transforms
 
-Backwards-compatible aliases are provided:
-
-- `expected_all_j` == `expected_orderstats`
-- `expected_all_j_conditional_included_all_i` == `expected_orderstats_inclusion`
-- `expected_all_j_leave_one_out_all_i` == `expected_orderstats_leave_one_out`
-- `OrderStatKofN` is an alias for `OrderStatTransform`
+When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can run in the explicit pipeline:
+`sort -> matmul -> revert sort`. The original prefix/suffix efficient methods remain available via `method="efficient"`.
 
 
 ## Testing

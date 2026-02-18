@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from orderstat_reward.numpy_backend import OrderStatTransform as NP
+from ordergrad.numpy_backend import OrderStatTransform as NP
 
 
 torch = pytest.importorskip("torch")
 
-from orderstat_reward.torch_backend import OrderStatTransform as TH
+from ordergrad.torch_backend import OrderStatTransform as TH
 
 
 def _rand_x_no_ties(rng: np.random.Generator, N: int) -> np.ndarray:
@@ -56,3 +56,154 @@ def test_torch_gradient_matches_rank_weights():
     w = os_th.lstat_weight_by_item(x.detach(), a.detach()).cpu().numpy()
 
     np.testing.assert_allclose(grad, w, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.torch
+def test_torch_lstat_and_advantage_match_numpy_with_and_without_preweights():
+    rng = np.random.default_rng(11)
+    N, k = 30, 6
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    np.testing.assert_allclose(
+        os_th.expected_lstat(x_th, a_th).detach().cpu().numpy(),
+        os_np.expected_lstat(x_np, a_np),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th.expected_lstat_inclusion(x_th, a_th).detach().cpu().numpy(),
+        os_np.expected_lstat_inclusion(x_np, a_np),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th.expected_lstat_leave_one_out(x_th, a_th).detach().cpu().numpy(),
+        os_np.expected_lstat_leave_one_out(x_np, a_np),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th.expected_orderstats_advantage(x_th).detach().cpu().numpy(),
+        os_np.expected_orderstats_advantage(x_np),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th.expected_lstat_advantage(x_th, a_th).detach().cpu().numpy(),
+        os_np.expected_lstat_advantage(x_np, a_np),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    # Preweighted path should match explicit-a path.
+    os_th_w = os_th.with_lstat_weights(a_th)
+    np.testing.assert_allclose(
+        os_th_w.expected_lstat(x_th).detach().cpu().numpy(),
+        os_th.expected_lstat(x_th, a_th).detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th_w.expected_lstat_inclusion(x_th).detach().cpu().numpy(),
+        os_th.expected_lstat_inclusion(x_th, a_th).detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th_w.expected_lstat_leave_one_out(x_th).detach().cpu().numpy(),
+        os_th.expected_lstat_leave_one_out(x_th, a_th).detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th_w.expected_lstat_advantage(x_th).detach().cpu().numpy(),
+        os_th.expected_lstat_advantage(x_th, a_th).detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.torch
+def test_torch_dense_matmul_variants_match_efficient_and_auto():
+    rng = np.random.default_rng(13)
+    N, k = 22, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    dense = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+    nodense = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=False)
+
+    # Dense matmul path parity.
+    np.testing.assert_allclose(
+        dense.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_orderstats_inclusion(x_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_leave_one_out(x_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_orderstats_leave_one_out(x_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_orderstats_advantage(x_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    # Auto selects dense path when available.
+    np.testing.assert_allclose(
+        dense.expected_orderstats_inclusion(x_th, method="auto").detach().cpu().numpy(),
+        dense.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    # matmul falls back to efficient when dense matrices are absent.
+    np.testing.assert_allclose(
+        nodense.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy(),
+        nodense.expected_orderstats_inclusion(x_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    # L-stat matmul variants (explicit a).
+    np.testing.assert_allclose(
+        dense.expected_lstat_inclusion(x_th, a_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_lstat_inclusion(x_th, a_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_lstat_leave_one_out(x_th, a_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_lstat_leave_one_out(x_th, a_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        dense.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy(),
+        dense.expected_lstat_advantage(x_th, a_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    # L-stat preweighted no-a matmul path parity.
+    dense_w = dense.with_lstat_weights(a_th)
+    np.testing.assert_allclose(
+        dense_w.expected_lstat_advantage(x_th, method="matmul").detach().cpu().numpy(),
+        dense_w.expected_lstat_advantage(x_th, method="efficient").detach().cpu().numpy(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
