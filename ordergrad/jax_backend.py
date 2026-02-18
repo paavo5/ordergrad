@@ -9,8 +9,8 @@ try:
     from jax.scipy.special import gammaln
 except Exception as e:  # pragma: no cover
     raise ImportError(
-        "orderstat_reward.jax_backend requires JAX + jaxlib. "
-        "Install them with: `pip install orderstat-reward[jax]`"
+        "ordergrad.jax_backend requires JAX + jaxlib. "
+        "Install them with: `pip install ordergrad[jax]`"
     ) from e
 
 
@@ -201,46 +201,86 @@ class OrderStatTransform:
 
     # -------- L-statistics (reward transforms) --------
 
-    def lstat_weight_by_rank(self, a: jnp.ndarray) -> jnp.ndarray:
+    def lstat_weight_by_rank(self, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+        if a is None:
+            if not hasattr(self, "Wa") or self.Wa is None:
+                raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
+            return self.Wa
         a = jnp.asarray(a)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
         return self.W @ a
 
-    def lstat_weight_by_item(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+    def lstat_weight_by_item(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
         _, inv = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+    def expected_lstat(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return jnp.sum(x_sorted * w_rank)
 
-    def expected_lstat_inclusion(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+    def with_lstat_weights(self, a: jnp.ndarray) -> "OrderStatTransform":
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        out = self.__class__(N=self.N, k=self.k, W=self.W, A=self.A, B=self.B, C=self.C, Wm=self.Wm)
+        object.__setattr__(out, "Wa", self.W @ a)
+        if self.A is not None and self.B is not None and self.C is not None:
+            object.__setattr__(out, "Aa", self.A @ a)
+            object.__setattr__(out, "Ba", self.B @ a)
+            object.__setattr__(out, "Ca", self.C @ a)
+        else:
+            object.__setattr__(out, "Aa", None)
+            object.__setattr__(out, "Ba", None)
+            object.__setattr__(out, "Ca", None)
+        object.__setattr__(out, "Wma", self.Wm @ a if self.Wm is not None else None)
+        return out
+
+    @classmethod
+    def precompute_lstat(cls, N: int, k: int, a: jnp.ndarray, **kwargs) -> "OrderStatTransform":
+        return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
+
+    def expected_lstat_inclusion(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+        if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            xa = x_sorted * self.Aa
+            pref_a = jnp.cumsum(xa, axis=0)
+            pref_a_excl = jnp.concatenate([jnp.zeros((1,), dtype=xa.dtype), pref_a[:-1]], axis=0)
+            xc = x_sorted * self.Ca
+            pref_c = jnp.cumsum(xc, axis=0)
+            inc = pref_a_excl + (x_sorted * self.Ba) + (pref_c[-1] - pref_c)
+            return inc[inv]
         E_inc = self.expected_orderstats_inclusion(x)
+        if a is None:
+            raise ValueError(f"a must be shape ({self.k},)")
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
+    def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+        if a is None and hasattr(self, "Wma") and self.Wma is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            p1 = x_sorted[:-1] * self.Wma
+            p2 = x_sorted[1:] * self.Wma
+            pref1 = jnp.cumsum(p1, axis=0)
+            left = jnp.concatenate([jnp.zeros((1,), dtype=p1.dtype), pref1], axis=0)
+            pref2 = jnp.cumsum(p2, axis=0)
+            right = pref2[-1] - jnp.concatenate([jnp.zeros((1,), dtype=p2.dtype), pref2], axis=0)
+            return (left + right)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x)
+        if a is None:
+            raise ValueError(f"a must be shape ({self.k},)")
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
         return E_loo @ a
 
+    def expected_orderstats_advantage(self, x: jnp.ndarray) -> jnp.ndarray:
+        return self.expected_orderstats_inclusion(x) - self.expected_orderstats_leave_one_out(x)
 
-    def expected_lstat_advantage(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
-        """Convenience: per-item advantage-style transform.
-
-        Defined as:
-            adv[i] = E[T(S) | i included] - E[T(S)] on population with i removed.
-
-        Shape: (N,)
-        """
+    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None) -> jnp.ndarray:
         return self.expected_lstat_inclusion(x, a) - self.expected_lstat_leave_one_out(x, a)
 
-    # ---- Backwards-compatible aliases (rankpg-style naming) ----
-    expected_all_j = expected_orderstats
-    expected_all_j_conditional_included_all_i = expected_orderstats_inclusion
-    expected_all_j_leave_one_out_all_i = expected_orderstats_leave_one_out
-
-
-# Backwards-compatible class alias
-OrderStatKofN = OrderStatTransform

@@ -7,8 +7,8 @@ try:
     import torch
 except Exception as e:  # pragma: no cover
     raise ImportError(
-        "orderstat_reward.torch_backend requires PyTorch. "
-        "Install it with: `pip install orderstat-reward[torch]`"
+        "ordergrad.torch_backend requires PyTorch. "
+        "Install it with: `pip install ordergrad[torch]`"
     ) from e
 
 
@@ -231,45 +231,78 @@ class OrderStatTransform:
 
     # -------- L-statistics (reward transforms) --------
 
-    def lstat_weight_by_rank(self, a: torch.Tensor) -> torch.Tensor:
+    def lstat_weight_by_rank(self, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if a is None:
+            if not hasattr(self, "Wa") or self.Wa is None:
+                raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
+            return self.Wa
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
         return self.W @ a
 
-    def lstat_weight_by_item(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def lstat_weight_by_item(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
         _, inv = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def expected_lstat(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return (x_sorted * w_rank).sum()
 
-    def expected_lstat_inclusion(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def with_lstat_weights(self, a: torch.Tensor) -> "OrderStatTransform":
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        out = self.__class__(N=self.N, k=self.k, W=self.W, A=self.A, B=self.B, C=self.C, Wm=self.Wm)
+        object.__setattr__(out, "Wa", self.W @ a)
+        if self.A is not None and self.B is not None and self.C is not None:
+            object.__setattr__(out, "Aa", self.A @ a)
+            object.__setattr__(out, "Ba", self.B @ a)
+            object.__setattr__(out, "Ca", self.C @ a)
+        else:
+            object.__setattr__(out, "Aa", None)
+            object.__setattr__(out, "Ba", None)
+            object.__setattr__(out, "Ca", None)
+        object.__setattr__(out, "Wma", self.Wm @ a if self.Wm is not None else None)
+        return out
+
+    @classmethod
+    def precompute_lstat(cls, N: int, k: int, a: torch.Tensor, **kwargs) -> "OrderStatTransform":
+        return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
+
+    def expected_lstat_inclusion(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            xa = x_sorted * self.Aa
+            pref_a = torch.cumsum(xa, dim=0)
+            pref_a_excl = torch.cat([torch.zeros((1,), dtype=xa.dtype, device=xa.device), pref_a[:-1]], dim=0)
+            xc = x_sorted * self.Ca
+            pref_c = torch.cumsum(xc, dim=0)
+            inc = pref_a_excl + (x_sorted * self.Ba) + (pref_c[-1] - pref_c)
+            return inc[inv]
         E_inc = self.expected_orderstats_inclusion(x)
+        if a is None or a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+    def expected_lstat_leave_one_out(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if a is None and hasattr(self, "Wma") and self.Wma is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            p1 = x_sorted[:-1] * self.Wma
+            p2 = x_sorted[1:] * self.Wma
+            pref1 = torch.cumsum(p1, dim=0)
+            left = torch.cat([torch.zeros((1,), dtype=p1.dtype, device=p1.device), pref1], dim=0)
+            pref2 = torch.cumsum(p2, dim=0)
+            right = pref2[-1] - torch.cat([torch.zeros((1,), dtype=p2.dtype, device=p2.device), pref2], dim=0)
+            return (left + right)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x)
+        if a is None or a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
         return E_loo @ a
 
+    def expected_orderstats_advantage(self, x: torch.Tensor) -> torch.Tensor:
+        return self.expected_orderstats_inclusion(x) - self.expected_orderstats_leave_one_out(x)
 
-    def expected_lstat_advantage(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        """Convenience: per-item advantage-style transform.
-
-        Defined as:
-            adv[i] = E[T(S) | i included] - E[T(S)] on population with i removed.
-
-        Shape: (N,)
-        """
+    def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
         return self.expected_lstat_inclusion(x, a) - self.expected_lstat_leave_one_out(x, a)
 
-    # ---- Backwards-compatible aliases (rankpg-style naming) ----
-    expected_all_j = expected_orderstats
-    expected_all_j_conditional_included_all_i = expected_orderstats_inclusion
-    expected_all_j_leave_one_out_all_i = expected_orderstats_leave_one_out
-
-
-# Backwards-compatible class alias
-OrderStatKofN = OrderStatTransform

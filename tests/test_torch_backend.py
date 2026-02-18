@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from orderstat_reward.numpy_backend import OrderStatTransform as NP
+from ordergrad.numpy_backend import OrderStatTransform as NP
 
 
 torch = pytest.importorskip("torch")
 
-from orderstat_reward.torch_backend import OrderStatTransform as TH
+from ordergrad.torch_backend import OrderStatTransform as TH
 
 
 def _rand_x_no_ties(rng: np.random.Generator, N: int) -> np.ndarray:

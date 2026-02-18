@@ -201,6 +201,20 @@ class OrderStatTransform:
     B: Optional[np.ndarray]  # (N,k)
     C: Optional[np.ndarray]  # (N,k)
     Wm: Optional[np.ndarray]  # (N-1,k)
+    Wa: Optional[np.ndarray] = None  # (N,)
+    Aa: Optional[np.ndarray] = None  # (N,)
+    Ba: Optional[np.ndarray] = None  # (N,)
+    Ca: Optional[np.ndarray] = None  # (N,)
+    Wma: Optional[np.ndarray] = None  # (N-1,)
+
+    @staticmethod
+    def _validate_a(a: Optional[np.ndarray], k: int) -> np.ndarray:
+        if a is None:
+            raise ValueError("a is required unless using a transform precomputed with l-statistic weights.")
+        a = np.asarray(a)
+        if a.shape != (k,):
+            raise ValueError(f"a must be shape ({k},)")
+        return a
 
     @classmethod
     def precompute(
@@ -228,6 +242,37 @@ class OrderStatTransform:
             Wm = precompute_W_leave_one_out(N, k, dtype=dtype, chunk_size=chunk_size)
 
         return cls(N=N, k=k, W=W, A=A, B=B, C=C, Wm=Wm)
+
+    def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
+        """Return a new transform with preweighted L-statistic coefficients."""
+        a = self._validate_a(a, self.k)
+        Wa = self.W @ a
+        Aa = Ba = Ca = Wma = None
+        if self.A is not None and self.B is not None and self.C is not None:
+            Aa = self.A @ a
+            Ba = self.B @ a
+            Ca = self.C @ a
+        if self.Wm is not None:
+            Wma = self.Wm @ a
+        return OrderStatTransform(
+            N=self.N,
+            k=self.k,
+            W=self.W,
+            A=self.A,
+            B=self.B,
+            C=self.C,
+            Wm=self.Wm,
+            Wa=Wa,
+            Aa=Aa,
+            Ba=Ba,
+            Ca=Ca,
+            Wma=Wma,
+        )
+
+    @classmethod
+    def precompute_lstat(cls, N: int, k: int, a: np.ndarray, **kwargs) -> "OrderStatTransform":
+        """Precompute matrices and pre-apply L-statistic weights `a`."""
+        return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
     def _sort_with_inverse_rank(self, x: np.ndarray):
         x = np.asarray(x)
@@ -296,43 +341,90 @@ class OrderStatTransform:
 
     # -------- L-statistics (reward transforms) --------
 
-    def lstat_weight_by_rank(self, a: np.ndarray) -> np.ndarray:
+    def lstat_weight_by_rank(self, a: Optional[np.ndarray] = None) -> np.ndarray:
         """Return rank-weight vector w of shape (N,) such that E[T(S)] = x_sorted @ w."""
-        a = np.asarray(a)
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+        if a is None:
+            if self.Wa is None:
+                raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
+            return self.Wa
+        a = self._validate_a(a, self.k)
         return self.W @ a
 
-    def lstat_weight_by_item(self, x: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def lstat_weight_by_item(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
         """Return item-weight vector in original index order (gradient away from ties)."""
         _, inv = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: np.ndarray, a: np.ndarray) -> float:
+    def expected_lstat(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> float:
         """Return E[T(S)] where T(S)=sum_j a_j X_(j:k)."""
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return float(x_sorted @ w_rank)
 
-    def expected_lstat_inclusion(self, x: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def expected_lstat_inclusion(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
         """Return E[T(S) | i included] for all i. Shape (N,)."""
+        if a is None and self.Aa is not None and self.Ba is not None and self.Ca is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return self._expected_lstat_inclusion_by_rank(x_sorted)[inv]
         E_inc = self.expected_orderstats_inclusion(x)
-        a = np.asarray(a)
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
-        return E_inc @ a
+        return E_inc @ self._validate_a(a, self.k)
 
-    def expected_lstat_leave_one_out(self, x: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
         """Return E[T(S)] on population with i removed, for all i. Shape (N,)."""
+        if a is None and self.Wma is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            return self._expected_lstat_leave_one_out_by_rank(x_sorted)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x)
-        a = np.asarray(a)
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
-        return E_loo @ a
+        return E_loo @ self._validate_a(a, self.k)
+
+    def _expected_lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
+        XA = x_sorted * self.Aa
+        prefA = np.cumsum(XA)
+        prefA_excl = np.concatenate([np.zeros(1, dtype=XA.dtype), prefA[:-1]])
+        XC = x_sorted * self.Ca
+        prefC = np.cumsum(XC)
+        suffC_excl = prefC[-1] - prefC
+        diag = x_sorted * self.Ba
+        return prefA_excl + diag + suffC_excl
+
+    def _expected_lstat_leave_one_out_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
+        u = x_sorted[:-1]
+        v = x_sorted[1:]
+        p1 = u * self.Wma
+        p2 = v * self.Wma
+        pref1 = np.cumsum(p1)
+        pref1_excl = np.concatenate([np.zeros(1, dtype=p1.dtype), pref1])
+        pref2 = np.cumsum(p2)
+        pref2_before = np.concatenate([np.zeros(1, dtype=p2.dtype), pref2])
+        suffix2 = pref2[-1] - pref2_before
+        return pref1_excl + suffix2
+
+    def expected_orderstats_advantage(self, x: np.ndarray) -> np.ndarray:
+        """Return E[X_(j:k)|i included] - E[X_(j:k)] on population with i removed. Shape (N,k)."""
+        if self.A is None or self.B is None or self.C is None or self.Wm is None:
+            raise ValueError("Advantage requires both conditional and leave-one-out precomputations.")
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+
+        XA = x_sorted[:, None] * self.A
+        XC = x_sorted[:, None] * self.C
+        prefA = np.cumsum(XA, axis=0)
+        prefA_excl = np.vstack([np.zeros((1, self.k), dtype=XA.dtype), prefA[:-1]])
+        prefC = np.cumsum(XC, axis=0)
+        inc = prefA_excl + (x_sorted[:, None] * self.B) + (prefC[-1:] - prefC)
+
+        u = x_sorted[:-1]
+        v = x_sorted[1:]
+        p1 = u[:, None] * self.Wm
+        p2 = v[:, None] * self.Wm
+        pref1 = np.cumsum(p1, axis=0)
+        loo_left = np.vstack([np.zeros((1, self.k), dtype=p1.dtype), pref1])
+        pref2 = np.cumsum(p2, axis=0)
+        loo = loo_left + (pref2[-1:] - np.vstack([np.zeros((1, self.k), dtype=p2.dtype), pref2]))
+        return (inc - loo)[inv, :]
 
 
-    def expected_lstat_advantage(self, x: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
         """Convenience: per-item advantage-style transform.
 
         Defined as:
@@ -340,13 +432,8 @@ class OrderStatTransform:
 
         Shape: (N,)
         """
+        if a is None and self.Aa is not None and self.Ba is not None and self.Ca is not None and self.Wma is not None:
+            x_sorted, inv = self._sort_with_inverse_rank(x)
+            adv_by_rank = self._expected_lstat_inclusion_by_rank(x_sorted) - self._expected_lstat_leave_one_out_by_rank(x_sorted)
+            return adv_by_rank[inv]
         return self.expected_lstat_inclusion(x, a) - self.expected_lstat_leave_one_out(x, a)
-
-    # ---- Backwards-compatible aliases (rankpg-style naming) ----
-    expected_all_j = expected_orderstats
-    expected_all_j_conditional_included_all_i = expected_orderstats_inclusion
-    expected_all_j_leave_one_out_all_i = expected_orderstats_leave_one_out
-
-
-# Backwards-compatible class alias
-OrderStatKofN = OrderStatTransform

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from orderstat_reward.numpy_backend import OrderStatTransform as NP
+from ordergrad.numpy_backend import OrderStatTransform as NP
 
 
 jax = pytest.importorskip("jax")
@@ -10,7 +10,7 @@ jnp = pytest.importorskip("jax.numpy")
 # Enable float64 for stable cross-backend comparisons.
 jax.config.update("jax_enable_x64", True)
 
-from orderstat_reward.jax_backend import OrderStatTransform as JX
+from ordergrad.jax_backend import OrderStatTransform as JX
 
 
 def _rand_x_no_ties(rng: np.random.Generator, N: int) -> np.ndarray:
