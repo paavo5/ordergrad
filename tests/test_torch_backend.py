@@ -207,3 +207,58 @@ def test_torch_dense_matmul_variants_match_efficient_and_auto():
         rtol=1e-12,
         atol=1e-12,
     )
+
+
+@pytest.mark.torch
+def test_torch_known_rank_position_matches_numpy_and_recovers_inclusion_and_advantage():
+    rng = np.random.default_rng(16)
+    N, k = 18, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    E_inc_np = os_np.expected_orderstats_inclusion(x_np)
+    E_inc_th = os_th.expected_orderstats_inclusion(x_th).detach().cpu().numpy()
+    E_loo_np = os_np.expected_orderstats_leave_one_out(x_np)
+
+    perm = np.argsort(x_np, kind="mergesort")
+    inv = np.empty(N, dtype=np.int64)
+    inv[perm] = np.arange(N, dtype=np.int64)
+
+    rec_inc_np = np.zeros_like(E_inc_np)
+    rec_inc_th = np.zeros_like(E_inc_np)
+    rec_adv_np = np.zeros_like(E_inc_np)
+    rec_adv_th = np.zeros_like(E_inc_np)
+    rec_l_inc_np = np.zeros(N, dtype=np.float64)
+    rec_l_inc_th = np.zeros(N, dtype=np.float64)
+
+    for ppos in range(1, k + 1):
+        rp_np = os_np.expected_orderstats_known_rank_position(x_np, ppos)
+        rp_th = os_th.expected_orderstats_known_rank_position(x_th, ppos).detach().cpu().numpy()
+        np.testing.assert_allclose(rp_th, rp_np, rtol=1e-12, atol=1e-12)
+
+        lp_np = os_np.expected_lstat_known_rank_position(x_np, a_np, ppos)
+        lp_th = os_th.expected_lstat_known_rank_position(x_th, a_th, ppos).detach().cpu().numpy()
+        np.testing.assert_allclose(lp_th, lp_np, rtol=1e-12, atol=1e-12)
+
+        probs = os_np.B[:, ppos - 1][inv]
+        rec_inc_np += probs[:, None] * rp_np
+        rec_inc_th += probs[:, None] * rp_th
+        rec_adv_np += probs[:, None] * (rp_np - E_loo_np)
+        rec_adv_th += probs[:, None] * (rp_th - E_loo_np)
+        rec_l_inc_np += probs * lp_np
+        rec_l_inc_th += probs * lp_th
+
+    np.testing.assert_allclose(rec_inc_np, E_inc_np, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(rec_inc_th, E_inc_th, rtol=1e-12, atol=1e-12)
+
+    np.testing.assert_allclose(rec_adv_np, os_np.expected_orderstats_advantage(x_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(rec_adv_th, os_th.expected_orderstats_advantage(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
+    np.testing.assert_allclose(rec_l_inc_np, os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(rec_l_inc_th, os_th.expected_lstat_inclusion(x_th, a_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)

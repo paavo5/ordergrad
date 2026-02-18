@@ -322,3 +322,57 @@ def test_matmul_method_fallback_and_auto_selection_behaviors():
         atol=1e-12,
         rtol=1e-12,
     )
+
+
+def test_known_rank_position_reduces_to_inclusion_when_marginalized_over_p():
+    rng = np.random.default_rng(101)
+    N, k = 12, 5
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+    a = rng.normal(size=k).astype(np.float64)
+
+    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+    E_inc = os.expected_orderstats_inclusion(x)
+
+    x_sorted = np.sort(x, kind="mergesort")
+    inv = np.empty(N, dtype=np.int64)
+    inv[np.argsort(x, kind="mergesort")] = np.arange(N, dtype=np.int64)
+
+    recon = np.zeros_like(E_inc)
+    recon_l = np.zeros(N, dtype=np.float64)
+    for p in range(1, k + 1):
+        E_rp = os.expected_orderstats_known_rank_position(x, p)
+        l_rp = os.expected_lstat_known_rank_position(x, a, p)
+        probs_rank = os.B[:, p - 1]
+        probs_item = probs_rank[inv]
+        recon += probs_item[:, None] * E_rp
+        recon_l += probs_item * l_rp
+
+    np.testing.assert_allclose(recon, E_inc, atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(recon_l, os.expected_lstat_inclusion(x, a), atol=1e-12, rtol=1e-12)
+
+
+def test_known_rank_position_advantage_marginalization_matches_standard_advantage():
+    rng = np.random.default_rng(202)
+    N, k = 13, 4
+    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
+    a = rng.normal(size=k).astype(np.float64)
+
+    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    E_loo = os.expected_orderstats_leave_one_out(x)
+    l_loo = os.expected_lstat_leave_one_out(x, a)
+
+    inv = np.empty(N, dtype=np.int64)
+    inv[np.argsort(x, kind="mergesort")] = np.arange(N, dtype=np.int64)
+
+    adv_from_rp = np.zeros((N, k), dtype=np.float64)
+    l_adv_from_rp = np.zeros(N, dtype=np.float64)
+    for p in range(1, k + 1):
+        E_rp = os.expected_orderstats_known_rank_position(x, p)
+        l_rp = os.expected_lstat_known_rank_position(x, a, p)
+        probs = os.B[:, p - 1][inv]
+        adv_from_rp += probs[:, None] * (E_rp - E_loo)
+        l_adv_from_rp += probs * (l_rp - l_loo)
+
+    np.testing.assert_allclose(adv_from_rp, os.expected_orderstats_advantage(x), atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(l_adv_from_rp, os.expected_lstat_advantage(x, a), atol=1e-12, rtol=1e-12)

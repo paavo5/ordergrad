@@ -92,6 +92,34 @@ def precompute_W_leave_one_out(N: int, k: int, *, dtype=jnp.float64) -> jnp.ndar
     return _build_weight_matrix(N - 1, k, log_den, log_term, dtype=dtype, renormalize_cols=True)
 
 
+def precompute_W_known_rank_position(N: int, k: int, p: int, *, dtype=jnp.float64) -> jnp.ndarray:
+    """Weights for E[X_(j:k) | rank r included and has sample position p]."""
+    if not (1 <= k <= N):
+        raise ValueError("Require 1 <= k <= N")
+    if not (1 <= p <= k):
+        raise ValueError("Require 1 <= p <= k")
+
+    r = jnp.arange(1, N + 1, dtype=jnp.int32)[:, None, None]
+    m = jnp.arange(1, N + 1, dtype=jnp.int32)[None, :, None]
+    j = jnp.arange(1, k + 1, dtype=jnp.int32)[None, None, :]
+
+    K = jnp.zeros((N, N, k), dtype=dtype)
+
+    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
+    log_low = _log_choose(m - 1, j - 1) + _log_choose(r - m - 1, (p - 1) - j) - _log_choose(r - 1, p - 1)
+    log_low = jnp.where(valid_low, log_low, -jnp.inf)
+    K = jnp.where(valid_low, jnp.exp(log_low).astype(dtype), K)
+
+    K = K.at[:, :, p - 1].set((m[:, :, 0] == r[:, :, 0]).astype(dtype))
+
+    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
+    q = j - p
+    log_high = _log_choose(m - r - 1, q - 1) + _log_choose(N - m, (k - p) - q) - _log_choose(N - r, k - p)
+    log_high = jnp.where(valid_high, log_high, -jnp.inf)
+    K = jnp.where(valid_high, jnp.exp(log_high).astype(dtype), K)
+    return K
+
+
 @dataclass(frozen=True)
 class OrderStatTransform:
     """JAX implementation.
@@ -350,9 +378,21 @@ class OrderStatTransform:
             return jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
+    def expected_orderstats_known_rank_position(self, x: jnp.ndarray, p: int) -> jnp.ndarray:
+        """Return E[X_(j:k) | i included and has sample position p] for all i."""
+        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype)
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+        return jnp.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+
+    def expected_lstat_known_rank_position(self, x: jnp.ndarray, a: jnp.ndarray, p: int) -> jnp.ndarray:
+        """Return E[T(S) | i included and has sample position p] for all i."""
+        a = jnp.asarray(a)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_known_rank_position(x, p) @ a
+
     def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[jnp.ndarray] = None, *, method: str = "efficient") -> jnp.ndarray:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_adv_a @ x_sorted)[inv]
         return self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
-

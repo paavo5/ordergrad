@@ -126,6 +126,37 @@ def precompute_W_leave_one_out(
     )
 
 
+def precompute_W_known_rank_position(
+    N: int, k: int, p: int, *, dtype: torch.dtype = torch.float64, device: Optional[torch.device] = None
+) -> torch.Tensor:
+    """Weights for E[X_(j:k) | rank r included and has sample position p]."""
+    if not (1 <= k <= N):
+        raise ValueError("Require 1 <= k <= N")
+    if not (1 <= p <= k):
+        raise ValueError("Require 1 <= p <= k")
+    device = device or torch.device("cpu")
+
+    r = torch.arange(1, N + 1, device=device, dtype=torch.int64)[:, None, None]
+    m = torch.arange(1, N + 1, device=device, dtype=torch.int64)[None, :, None]
+    j = torch.arange(1, k + 1, device=device, dtype=torch.int64)[None, None, :]
+
+    K = torch.zeros((N, N, k), dtype=dtype, device=device)
+
+    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
+    log_low = _log_choose(m - 1, j - 1) + _log_choose(r - m - 1, (p - 1) - j) - _log_choose(r - 1, p - 1)
+    log_low = torch.where(valid_low, log_low, torch.full_like(log_low, float("-inf")))
+    K = torch.where(valid_low, torch.exp(log_low).to(dtype=dtype), K)
+
+    K[:, :, p - 1] = (m[:, :, 0] == r[:, :, 0]).to(dtype=dtype)
+
+    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
+    q = j - p
+    log_high = _log_choose(m - r - 1, q - 1) + _log_choose(N - m, (k - p) - q) - _log_choose(N - r, k - p)
+    log_high = torch.where(valid_high, log_high, torch.full_like(log_high, float("-inf")))
+    K = torch.where(valid_high, torch.exp(log_high).to(dtype=dtype), K)
+    return K
+
+
 @dataclass(frozen=True)
 class OrderStatTransform:
     """PyTorch implementation.
@@ -371,6 +402,19 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return torch.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+
+
+    def expected_orderstats_known_rank_position(self, x: torch.Tensor, p: int) -> torch.Tensor:
+        """Return E[X_(j:k) | i included and has sample position p] for all i."""
+        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype, device=self.W.device)
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+        return torch.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+
+    def expected_lstat_known_rank_position(self, x: torch.Tensor, a: torch.Tensor, p: int) -> torch.Tensor:
+        """Return E[T(S) | i included and has sample position p] for all i."""
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return self.expected_orderstats_known_rank_position(x, p) @ a
 
     def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[torch.Tensor] = None, *, method: str = "efficient") -> torch.Tensor:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:

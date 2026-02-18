@@ -196,6 +196,49 @@ def precompute_W_leave_one_out(
     )
 
 
+def precompute_W_known_rank_position(N: int, k: int, p: int, *, dtype=np.float64) -> np.ndarray:
+    """Weights for E[X_(j:k) | rank r included and has sample position p].
+
+    Returns tensor K of shape (N, N, k) indexed by (r-1, m-1, j-1).
+    """
+    if not (isinstance(k, int) and 1 <= k <= N):
+        raise ValueError("Require integer k with 1 <= k <= N")
+    if not (isinstance(p, int) and 1 <= p <= k):
+        raise ValueError("Require integer p with 1 <= p <= k")
+
+    r = np.arange(1, N + 1, dtype=np.int64)[:, None, None]
+    m = np.arange(1, N + 1, dtype=np.int64)[None, :, None]
+    j = np.arange(1, k + 1, dtype=np.int64)[None, None, :]
+
+    K = np.zeros((N, N, k), dtype=dtype)
+
+    valid_low = (m < r) & (j < p) & ((r - 1) >= (p - 1))
+    with np.errstate(invalid="ignore"):
+        log_low = (
+            _log_choose(m - 1, j - 1)
+            + _log_choose(r - m - 1, (p - 1) - j)
+            - _log_choose(r - 1, p - 1)
+        )
+    w_low = np.zeros_like(log_low, dtype=dtype)
+    w_low[valid_low] = np.exp(log_low[valid_low]).astype(dtype, copy=False)
+    K = np.where(valid_low, w_low, K)
+
+    K[:, :, p - 1] = (m[:, :, 0] == r[:, :, 0]).astype(dtype)
+
+    valid_high = (m > r) & (j > p) & ((N - r) >= (k - p))
+    q = j - p
+    with np.errstate(invalid="ignore"):
+        log_high = (
+            _log_choose(m - r - 1, q - 1)
+            + _log_choose(N - m, (k - p) - q)
+            - _log_choose(N - r, k - p)
+        )
+    w_high = np.zeros_like(log_high, dtype=dtype)
+    w_high[valid_high] = np.exp(log_high[valid_high]).astype(dtype, copy=False)
+    K = np.where(valid_high, w_high, K)
+    return K
+
+
 # -----------------------------
 # Main API
 # -----------------------------
@@ -488,6 +531,22 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return np.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+
+    def expected_orderstats_known_rank_position(self, x: np.ndarray, p: int) -> np.ndarray:
+        """Return E[X_(j:k) | i included and has sample position p] for all i.
+
+        Shape: (N,k). Requires integer (non-fractional) kappa.
+        """
+        if self.kappa != float(self.k):
+            raise ValueError("known (r,p) variant requires integer k (fractional kappa is not supported).")
+        K = precompute_W_known_rank_position(self.N, self.k, p, dtype=self.W.dtype)
+        x_sorted, inv = self._sort_with_inverse_rank(x)
+        return np.einsum("rmj,m->rj", K, x_sorted)[inv, :]
+
+    def expected_lstat_known_rank_position(self, x: np.ndarray, a: Optional[np.ndarray], p: int) -> np.ndarray:
+        """Return E[T(S) | i included and has sample position p] for all i. Shape (N,)."""
+        E_rp = self.expected_orderstats_known_rank_position(x, p)
+        return E_rp @ self._validate_a(a, self.k)
 
 
     def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
