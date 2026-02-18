@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ordergrad"
+version = "0.1.0"
+description = "Fast order-statistics reward transforms (expected order stats under uniform k-subset sampling)."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "ordergrad contributors"}]
+license = {text = "MIT"}
+
+dependencies = [
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2"]
+jax = ["jax>=0.4", "jaxlib>=0.4"]
+dev = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+markers = [
+  "torch: tests that require PyTorch",
+  "jax: tests that require JAX",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orderstat_reward*"]

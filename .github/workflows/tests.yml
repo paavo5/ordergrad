@@ -1,0 +1,55 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  numpy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (NumPy-only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Run tests (NumPy-only)
+        run: |
+          pytest -m "not torch and not jax"
+
+  torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (Torch)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,torch]"
+      - name: Run tests (Torch)
+        run: |
+          pytest -m torch
+
+  jax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (JAX CPU)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,jax]"
+      - name: Run tests (JAX)
+        run: |
+          pytest -m jax
