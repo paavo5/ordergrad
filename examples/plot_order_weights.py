@@ -25,6 +25,15 @@ def main() -> None:
         default="1,5,10,15,20",
         help="Comma-separated list of j ranks to plot (1-based).",
     )
+    parser.add_argument(
+        "--a",
+        type=str,
+        default=None,
+        help=(
+            "Optional comma-separated L-stat weights aligned with --ranks. "
+            "Unlisted ranks get weight 0. Example: --ranks 1,5,10 --a 0.2,0.3,0.5"
+        ),
+    )
     parser.add_argument("--output", type=str, default="examples/artifacts/order_weights.png", help="Output PNG path.")
     parser.add_argument("--show", action="store_true", help="Show interactive window in addition to saving.")
     args = parser.parse_args()
@@ -45,6 +54,16 @@ def main() -> None:
     if bad:
         raise SystemExit(f"Invalid ranks {bad}; require each in [1, {k_ord}].")
 
+    if args.a is not None:
+        a_vals = [float(x) for x in args.a.split(",") if x.strip()]
+        if len(a_vals) != len(ranks):
+            raise SystemExit("If provided, --a must have the same number of entries as --ranks.")
+        a = np.zeros(k_ord, dtype=np.float64)
+        for j, w in zip(ranks, a_vals):
+            a[j - 1] = w
+    else:
+        a = None
+
     m = np.arange(1, args.N + 1)
     fig, ax = plt.subplots(figsize=(9, 5))
     for j in ranks:
@@ -55,6 +74,13 @@ def main() -> None:
     ax.set_ylabel("weight W[m,j]")
     ax.grid(alpha=0.3)
     ax.legend(ncol=2, fontsize=9)
+
+    if a is not None:
+        w_rank = W @ a
+        ax2 = ax.twinx()
+        ax2.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined w_rank = W @ a")
+        ax2.set_ylabel("combined rank weight")
+        ax2.legend(loc="upper right", fontsize=9)
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -6,8 +6,12 @@ These scripts are intended as a hands-on playground for understanding and profil
 
 `plot_order_weights.py` plots unconditional weight curves `W[m,j]` over sorted rank `m`.
 
+It also supports an optional `--a` argument (comma-separated, aligned with `--ranks`) to define an
+L-stat weight vector where unspecified ranks have weight 0, and plots the combined rank-weight curve `W @ a`.
+
 ```bash
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10,15,20
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10 --a 0.2,0.3,0.5
 ```
 
 ## 2) Benchmark methods
