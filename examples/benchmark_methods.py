@@ -65,6 +65,7 @@ def main() -> None:
     print("Dense matrices: precomputes full rank-space operators used by matmul mode.")
     print("No-dense: avoids those operators; efficient mode still works and is memory-light.")
     print("inc = inclusion-conditional order stats, adv = inclusion - leave-one-out.")
+    print("L-inc/L-adv compare full-order-stat computation vs direct preweighted-a computation.")
     print("=" * 88)
 
     t_pre_no = time.perf_counter()
@@ -75,6 +76,13 @@ def main() -> None:
     os_dense = OrderStatTransform.precompute(args.N, args.k, dtype=dtype, compute_dense_matrices=True)
     t_pre_dense = time.perf_counter() - t_pre_dense
 
+    t_pre_lstat = time.perf_counter()
+    os_lstat_dense = os_dense.with_lstat_weights(a)
+    t_pre_lstat = time.perf_counter() - t_pre_lstat
+
+    # Full-order-stat vs direct-preweighted comparisons:
+    # - "full+dot": compute full vectors/matrices then contract with a each call.
+    # - "direct": use with_lstat_weights(a) so contractions are precomputed once.
     benchmarks: list[tuple[str, Callable[[], Any]]] = [
         ("orderstats unconditional (always W-based)", lambda: os_no.expected_orderstats(x)),
         ("inc efficient (no-dense)", lambda: os_no.expected_orderstats_inclusion(x, method="efficient")),
@@ -83,12 +91,21 @@ def main() -> None:
         ("inc matmul (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="matmul")),
         ("adv efficient (dense)", lambda: os_dense.expected_orderstats_advantage(x, method="efficient")),
         ("adv matmul (dense)", lambda: os_dense.expected_orderstats_advantage(x, method="matmul")),
-        ("L-adv efficient (dense)", lambda: os_dense.expected_lstat_advantage(x, a, method="efficient")),
-        ("L-adv matmul (dense)", lambda: os_dense.expected_lstat_advantage(x, a, method="matmul")),
+        ("L-adv (dense; a passed each call)", lambda: os_dense.expected_lstat_advantage(x, a, method="efficient")),
+        ("L-adv matmul (dense; a passed)", lambda: os_dense.expected_lstat_advantage(x, a, method="matmul")),
+        ("L-adv direct (dense; preweighted)", lambda: os_lstat_dense.expected_lstat_advantage(x, method="efficient")),
+        ("L-adv direct matmul (dense; prew)", lambda: os_lstat_dense.expected_lstat_advantage(x, method="matmul")),
+        ("L-inc full+dot (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="efficient") @ a),
+        ("L-inc direct (dense; preweighted)", lambda: os_lstat_dense.expected_lstat_inclusion(x, method="efficient")),
+        ("L-inc full+dot matmul (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="matmul") @ a),
+        ("L-inc direct matmul (dense; prew)", lambda: os_lstat_dense.expected_lstat_inclusion(x, method="matmul")),
+        ("L-uncond full+dot", lambda: os_dense.expected_orderstats(x) @ a),
+        ("L-uncond direct preweighted", lambda: os_lstat_dense.expected_lstat(x)),
     ]
 
-    print(f"Precompute time (no-dense): {t_pre_no*1e3:10.3f} ms")
-    print(f"Precompute time (dense):    {t_pre_dense*1e3:10.3f} ms")
+    print(f"Precompute time (no-dense):      {t_pre_no*1e3:10.3f} ms")
+    print(f"Precompute time (dense):         {t_pre_dense*1e3:10.3f} ms")
+    print(f"Precompute time (dense+lstat a): {t_pre_lstat*1e3:10.3f} ms")
     print("\nAverage per-call runtime:")
     for name, fn in benchmarks:
         dt = timeit(fn, args.repeats)
