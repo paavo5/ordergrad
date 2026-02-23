@@ -155,6 +155,17 @@ Torch/JAX provide matching methods.
 
 ---
 
+
+## Performance recommendations
+
+For most workloads, prefer the **efficient** evaluation path and preweighting when `a` is fixed:
+
+- Use `method="efficient"` for inclusion/leave-one-out/advantage calls; this is typically faster and more memory-efficient in the benchmark scripts.
+- Use `with_lstat_weights(a)` (or `precompute_lstat(...)`) when the L-stat vector `a` is reused across many calls.
+  This precomputes the `a`-contractions once and usually gives significantly faster repeated `expected_lstat*` evaluations than recomputing full order-stat tensors and multiplying by `a` each call.
+- Enable `compute_dense_matrices=True` only when you explicitly want matmul-based dense operator paths (or are comparing methods).
+  Dense precompute can be slower and uses more memory.
+
 ## API notes
 
 Each backend exposes `OrderStatTransform` with:
