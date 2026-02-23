@@ -80,6 +80,7 @@ A primary use-case is gradient estimation for order-statistic objectives:
 
 By default, advantage outputs are detached from the computation graph (`detach_advantage=True`).
 If needed for experimentation, this can be disabled by setting `detach_advantage=False`.
+Non-advantage outputs are not detached.
 
 ---
 
@@ -164,17 +165,24 @@ Each backend exposes `OrderStatTransform` with:
 - `precompute(N, k, ..., compute_dense_matrices=False)`
   - `k` may be integer or real
   - internal order-stat dimension is `floor(k)` and available as `transform.k`
-- batch-regime methods:
+- batch-regime order-stat methods:
   - `expected_orderstats(x)`
   - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto")`
   - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto")`
   - `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto", detach_advantage=True)`
-  - L-stat analogues (`expected_lstat*`, including `expected_lstat_advantage(..., detach_advantage=True)`)
-- known-`(r,p)` methods:
+- batch-regime L-stat methods:
+  - `expected_lstat(x, a=None)`
+  - `expected_lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
+  - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
+  - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
+- known-`(r,p)` order-stat methods:
   - `expected_orderstats_known_rp(r, p)`
   - `expected_orderstats_inclusion_known_rp(r, p)`
   - `expected_orderstats_advantage_known_rp(r, p, detach_advantage=True)`
-  - L-stat analogues (`expected_lstat*_known_rp`, including `expected_lstat_advantage_known_rp(..., detach_advantage=True)`)
+- known-`(r,p)` L-stat methods:
+  - `expected_lstat_known_rp(r, p, a)`
+  - `expected_lstat_inclusion_known_rp(r, p, a)`
+  - `expected_lstat_advantage_known_rp(r, p, a, detach_advantage=True)`
 
 When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can use explicit dense matmul paths; otherwise efficient prefix/suffix implementations are used.
 
