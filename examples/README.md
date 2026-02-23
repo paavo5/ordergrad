@@ -72,9 +72,9 @@ python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 -
 
 ## 4) Monte Carlo gradient check (multi-arm)
 
-`mc_gradients_multiarm.py` compares an LR gradient estimator (using the computed
-L-advantage baseline) against an exact finite-difference gradient of the known-(r,p)
-objective with respect to arm logits.
+`mc_gradients_multiarm.py` (torch-only) compares an LR gradient estimator
+(using the computed L-advantage baseline) against an exact known-(r,p) gradient
+obtained by differentiating the exact objective with torch autograd.
 
 ```bash
 python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
