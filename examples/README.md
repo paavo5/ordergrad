@@ -45,14 +45,19 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 `monte_carlo_accuracy.py` checks that repeated averages of the **batch estimator** converge to the exact known-`(r,p)` target.
 
 - One estimator run = one batch of `N` sampled values with estimator parameter `k`.
+- `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
-- Plots estimation error versus `t` for:
+- Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
+  - inclusion,
   - advantage,
   - L-advantage.
+- Optional `--plot-arm-details` saves an extra figure comparing exact vs estimated per-arm
+  inclusion/advantage (for rank selected by `--arm-rank`) and L-advantage at `t=max(t-grid)`.
 
 ```bash
-python examples/monte_carlo_accuracy.py --N 64 --k 6 --t-grid 1,2,5,10,20,50,100,200
+python examples/monte_carlo_accuracy.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
+python examples/monte_carlo_accuracy.py --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
 ```
 
 ---
