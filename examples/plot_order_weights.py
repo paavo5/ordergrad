@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Plot unconditional order-statistic weight curves W[m,j] for a batch size N.
+"""Plot order-statistic weight curves for different modes.
 
-This script visualizes how each order-stat index j (1..k) weights the sorted positions m (1..N)
-in E[X_(j:k)] = sum_m x_(m) W[m,j].
+Modes:
+- unconditional: plots W[m,j]
+- conditional: plots W_cond[r,m,j] for a fixed conditioned sorted rank r
+
+For conditional mode, optional delta overlays show how conditioning changes each
+curve relative to unconditional weights.
 """
 
 from __future__ import annotations
@@ -12,27 +16,94 @@ from pathlib import Path
 
 import numpy as np
 
-from ordergrad.numpy_backend import precompute_W_unconditional
+from ordergrad.numpy_backend import (
+    precompute_ABC_conditional_including_rank,
+    precompute_W_unconditional,
+)
+
+
+def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
+    """Parse rank spec with comma tokens and inclusive a..b ranges."""
+    out: list[int] = []
+    for raw in spec.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        if ".." in token:
+            parts = token.split("..")
+            if len(parts) != 2 or (not parts[0].strip()) or (not parts[1].strip()):
+                raise SystemExit(f"Invalid range token '{token}'. Use a..b.")
+            a = int(parts[0])
+            b = int(parts[1])
+            if a > b:
+                raise SystemExit(f"Invalid descending range '{token}'. Use a <= b.")
+            out.extend(range(a, b + 1))
+        else:
+            out.append(int(token))
+
+    if not out:
+        raise SystemExit("No ranks were provided.")
+
+    bad = [j for j in out if not (1 <= j <= k_ord)]
+    if bad:
+        raise SystemExit(f"Invalid ranks {bad}; require each in [1, {k_ord}].")
+
+    # De-duplicate while preserving order.
+    dedup = list(dict.fromkeys(out))
+    return dedup
+
+
+def _parse_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
+    vals = [float(x) for x in spec.split(",") if x.strip()]
+    if len(vals) == 0:
+        raise SystemExit("--a was provided but no weights were parsed.")
+    if len(vals) == 1:
+        vals = vals * len(ranks)
+    elif len(vals) != len(ranks):
+        raise SystemExit("--a must have either one entry or the same number of entries as --ranks.")
+
+    a = np.zeros(k_ord, dtype=np.float64)
+    for j, w in zip(ranks, vals):
+        a[j - 1] = w
+    return a
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot unconditional order-statistic weights by sorted rank.")
+    parser = argparse.ArgumentParser(description="Plot order-statistic weights by sorted rank.")
     parser.add_argument("--N", type=int, default=100, help="Batch/population size.")
     parser.add_argument("--k", type=float, default=20.0, help="Subset/sample parameter k (can be real).")
     parser.add_argument(
         "--ranks",
         type=str,
         default="1,5,10,15,20",
-        help="Comma-separated list of j ranks to plot (1-based).",
+        help="Comma-separated ranks and/or ranges (1-based), e.g. 1,3..6,10.",
     )
     parser.add_argument(
         "--a",
         type=str,
         default=None,
         help=(
-            "Optional comma-separated L-stat weights aligned with --ranks. "
-            "Unlisted ranks get weight 0. Example: --ranks 1,5,10 --a 0.2,0.3,0.5"
+            "Optional L-stat weights for listed ranks. "
+            "Provide either one value (broadcast to all listed ranks) or one value per listed rank."
         ),
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="unconditional",
+        choices=["unconditional", "conditional"],
+        help="Weight mode to plot.",
+    )
+    parser.add_argument(
+        "--conditioned-rank",
+        type=int,
+        default=1,
+        help="For conditional mode: conditioned sorted rank r (1-based) of the included item.",
+    )
+    parser.add_argument(
+        "--show-delta",
+        action="store_true",
+        help="In conditional mode, also plot the change vs unconditional: W_cond - W.",
     )
     parser.add_argument("--output", type=str, default="examples/artifacts/order_weights.png", help="Output PNG path.")
     parser.add_argument("--show", action="store_true", help="Show interactive window in addition to saving.")
@@ -47,40 +118,83 @@ def main() -> None:
     if not (1 <= k_ord <= args.N):
         raise SystemExit("Require 1 <= floor(k) <= N.")
 
+    ranks = _parse_ranks(args.ranks, k_ord=k_ord)
     W = precompute_W_unconditional(args.N, args.k, dtype=np.float64)
 
-    ranks = [int(x) for x in args.ranks.split(",") if x.strip()]
-    bad = [j for j in ranks if not (1 <= j <= k_ord)]
-    if bad:
-        raise SystemExit(f"Invalid ranks {bad}; require each in [1, {k_ord}].")
-
-    if args.a is not None:
-        a_vals = [float(x) for x in args.a.split(",") if x.strip()]
-        if len(a_vals) != len(ranks):
-            raise SystemExit("If provided, --a must have the same number of entries as --ranks.")
-        a = np.zeros(k_ord, dtype=np.float64)
-        for j, w in zip(ranks, a_vals):
-            a[j - 1] = w
-    else:
-        a = None
+    a = _parse_a(args.a, ranks=ranks, k_ord=k_ord) if args.a is not None else None
 
     m = np.arange(1, args.N + 1)
-    fig, ax = plt.subplots(figsize=(9, 5))
-    for j in ranks:
-        ax.plot(m, W[:, j - 1], label=f"j={j}")
+    fig, ax = plt.subplots(figsize=(10, 5.5))
 
-    ax.set_title(f"Order-statistic weights W[m,j] (N={args.N}, k={args.k}, floor(k)={k_ord})")
+    if args.mode == "unconditional":
+        W_plot = W
+        title = f"Unconditional order-stat weights W[m,j] (N={args.N}, k={args.k}, floor(k)={k_ord})"
+        for j in ranks:
+            ax.plot(m, W_plot[:, j - 1], label=f"j={j}")
+    else:
+        r = int(args.conditioned_rank)
+        if not (1 <= r <= args.N):
+            raise SystemExit(f"--conditioned-rank must be in [1, {args.N}].")
+        A, B, C = precompute_ABC_conditional_including_rank(args.N, args.k, dtype=np.float64)
+        W_cond = np.empty_like(W)
+        W_cond[: r - 1, :] = A[: r - 1, :]
+        W_cond[r - 1, :] = B[r - 1, :]
+        W_cond[r:, :] = C[r:, :]
+
+        title = (
+            "Conditional inclusion weights "
+            f"W_cond[r,m,j] with conditioned sorted rank r={r} (N={args.N}, k={args.k}, floor(k)={k_ord})"
+        )
+        for j in ranks:
+            ax.plot(m, W_cond[:, j - 1], label=f"cond j={j}")
+            ax.plot(m, W[:, j - 1], linestyle=":", alpha=0.8, label=f"uncond j={j}")
+            if args.show_delta:
+                ax.plot(m, W_cond[:, j - 1] - W[:, j - 1], linestyle="--", alpha=0.9, label=f"delta j={j}")
+
+        if a is not None:
+            w_rank_cond = W_cond @ a
+            w_rank_uncond = W @ a
+            ax2 = ax.twinx()
+            ax2.plot(
+                m,
+                w_rank_cond,
+                color="black",
+                linestyle="-",
+                linewidth=1.8,
+                label="combined conditional W_cond @ a",
+            )
+            ax2.plot(
+                m,
+                w_rank_uncond,
+                color="black",
+                linestyle=":",
+                linewidth=1.5,
+                label="combined unconditional W @ a",
+            )
+            if args.show_delta:
+                ax2.plot(
+                    m,
+                    w_rank_cond - w_rank_uncond,
+                    color="gray",
+                    linestyle="--",
+                    linewidth=1.3,
+                    label="combined delta",
+                )
+            ax2.set_ylabel("combined rank weight")
+            ax2.legend(loc="upper right", fontsize=8)
+
+    ax.set_title(title)
     ax.set_xlabel("sorted index m")
-    ax.set_ylabel("weight W[m,j]")
+    ax.set_ylabel("weight")
     ax.grid(alpha=0.3)
-    ax.legend(ncol=2, fontsize=9)
+    ax.legend(ncol=2, fontsize=8, loc="upper left")
 
-    if a is not None:
+    if a is not None and args.mode == "unconditional":
         w_rank = W @ a
         ax2 = ax.twinx()
-        ax2.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined w_rank = W @ a")
+        ax2.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined W @ a")
         ax2.set_ylabel("combined rank weight")
-        ax2.legend(loc="upper right", fontsize=9)
+        ax2.legend(loc="upper right", fontsize=8)
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -4,35 +4,57 @@ These scripts are intended as a hands-on playground for understanding and profil
 
 ## 1) Plot order weights
 
-`plot_order_weights.py` plots unconditional weight curves `W[m,j]` over sorted rank `m`.
+`plot_order_weights.py` plots order-statistic weight curves over sorted rank `m`.
 
-It also supports an optional `--a` argument (comma-separated, aligned with `--ranks`) to define an
-L-stat weight vector where unspecified ranks have weight 0, and plots the combined rank-weight curve `W @ a`.
+### Features
+- `--mode unconditional`: plot `W[m,j]`.
+- `--mode conditional`: plot conditional inclusion weights for a fixed conditioned sorted rank `r`.
+- `--ranks` supports explicit lists and inclusive ranges: e.g. `1,3..6,10`.
+- Optional `--a` lets you define sparse L-stat coefficients on listed ranks:
+  - one value: broadcast to all listed ranks,
+  - or one value per listed rank.
+- In conditional mode, `--show-delta` overlays `W_cond - W`.
 
 ```bash
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10,15,20
-python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10 --a 0.2,0.3,0.5
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a 0.25
+python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-delta
 ```
 
 ## 2) Benchmark methods
 
-`benchmark_methods.py` compares efficient vs matmul paths and dense vs non-dense precompute costs.
+`benchmark_methods.py` compares runtime tradeoffs for three backends (`np`, `jax`, `torch`) selected by `--backend`.
+
+- Backends are imported lazily (JAX/Torch are imported only if requested).
+- Reports precompute time for:
+  - **no-dense**: does not build dense rank-space operators,
+  - **dense**: builds dense matrices (`M_inc`, `M_loo`, `M_adv`) used by matmul mode.
+- Reports per-call runtime for unconditional, inclusion (`inc`), advantage (`adv`), and L-advantage methods.
 
 ```bash
-python examples/benchmark_methods.py --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend jax --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend torch --N 500 --k 40 --repeats 100
 ```
 
-## 3) Monte Carlo accuracy curve
+## 3) Monte Carlo estimator accuracy curve
 
-`monte_carlo_accuracy.py` compares MC estimates to exact known-`(r,p)` values and plots estimation error vs sample count.
+`monte_carlo_accuracy.py` checks that repeated averages of the **batch estimator** converge to the exact known-`(r,p)` target.
+
+- One estimator run = one batch of `N` sampled values with estimator parameter `k`.
+- `--t-grid` is the number of independent repeated estimator runs to average.
+- Plots estimation error versus `t` for:
+  - order-statistics,
+  - advantage,
+  - L-advantage.
 
 ```bash
-python examples/monte_carlo_accuracy.py --k 6 --trials 30 --t-grid 100,300,1000,3000,10000
+python examples/monte_carlo_accuracy.py --N 64 --k 6 --t-grid 1,2,5,10,20,50,100,200
 ```
 
 ---
 
 ## Notes
 
-- The plotting scripts require `matplotlib`.
+- Plotting scripts require `matplotlib`.
 - Outputs are saved under `examples/artifacts/` by default.
