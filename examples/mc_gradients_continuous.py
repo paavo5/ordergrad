@@ -137,18 +137,17 @@ def main() -> None:
             g_rp = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
             # LR estimator via autograd score terms with k multiplier.
-            mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
-            z_lr = mu_lr[None, :] + eps
-            x_lr = -torch.sum((z_lr - float(args.center)) ** 2, dim=1)
+            # Important: detach samples in the score term (treat sampled z as fixed)
+            # so grad_mu log p(z; mu) is computed correctly.
+            z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
+            x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1)
             l_adv = os_l.expected_lstat_advantage(x_lr).detach()
 
+            mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             # log N(z|mu, I) = -0.5*||z-mu||^2 - d*const
-            logp = -0.5 * torch.sum((z_lr - mu_lr[None, :]) ** 2, dim=1) - (args.dim * const)
-            weighted_score = torch.zeros(args.dim, dtype=dtype, device=device)
-            for n in range(args.N):
-                g_n = torch.autograd.grad(logp[n], mu_lr, retain_graph=True, create_graph=False)[0]
-                weighted_score = weighted_score + l_adv[n] * g_n
-            g_lr = (float(args.k) * weighted_score) / float(args.N)
+            logp = -0.5 * torch.sum((z_sample - mu_lr[None, :]) ** 2, dim=1) - (args.dim * const)
+            lr_objective = (float(args.k) / float(args.N)) * torch.sum(l_adv * logp)
+            g_lr = torch.autograd.grad(lr_objective, mu_lr, retain_graph=False, create_graph=False)[0]
 
             rp_sum += g_rp
             lr_sum += g_lr
