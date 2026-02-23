@@ -424,7 +424,7 @@ class OrderStatTransform:
             out[k - m :] = 1.0 / m
         elif key == "botm":
             out[:m] = 1.0 / m
-        elif key == "midrangem":
+        elif key in {"midrangem", "topbot"}:
             out[:m] = 0.5 / m
             out[k - m :] += 0.5 / m
         elif key in {"winsorizedm", "windosrizedm"}:
@@ -439,7 +439,7 @@ class OrderStatTransform:
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 

@@ -382,7 +382,7 @@ class OrderStatTransform:
             out = out.at[k - m :].set(1.0 / m)
         elif key == "botm":
             out = out.at[:m].set(1.0 / m)
-        elif key == "midrangem":
+        elif key in {"midrangem", "topbot"}:
             out = out.at[:m].set(0.5 / m)
             out = out.at[k - m :].add(0.5 / m)
         elif key in {"winsorizedm", "windosrizedm"}:
@@ -397,7 +397,7 @@ class OrderStatTransform:
             out = out.at[m : k - m].set(1.0 / (k - 2 * m))
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 

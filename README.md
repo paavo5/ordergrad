@@ -124,7 +124,7 @@ adv = os.expected_orderstats_advantage(x)          # (N, os.k)
 l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 
 # Preset shorthands are also supported for a:
-#   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m",
+#   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m", "TopBot:m",
 #   "ReMax", "ReMin", "Median", "HarrellDavis:q",
 #   "GiniMeanDifference" (or "GMD"), "LMoment:r"
 l_top2 = os.expected_lstat(x, "TopM:2")
@@ -207,7 +207,7 @@ Each backend exposes `OrderStatTransform` with:
     - `"BotM:m"`: equal weight on bottom `m` ranks
     - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
     - `"WinsorizedM:m"`: winsorized mean (replace bottom/top `m` values by the next interior values)
-    - `"MidrangeM:m"`: average of bottom-`m` mean and top-`m` mean
+    - `"MidrangeM:m"` / `"TopBot:m"`: average of bottom-`m` mean and top-`m` mean
     - `"ReMax"`: top-1 only
     - `"ReMin"`: bottom-1 only
     - `"Median"`: sample median (middle rank or average of two middle ranks)

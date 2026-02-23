@@ -139,6 +139,7 @@ def test_lstat_presets_match_manual_vectors():
         "WinsorizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
         "WindosrizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
         "MidrangeM:2": np.array([0.25, 0.25, 0, 0, 0.25, 0.25], dtype=np.float64),
+        "TopBot:2": np.array([0.25, 0.25, 0, 0, 0.25, 0.25], dtype=np.float64),
         "ReMax": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "ReMin": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
         "Median": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
