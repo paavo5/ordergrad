@@ -142,7 +142,7 @@ def main() -> None:
             for n in range(args.N):
                 g_n = torch.autograd.grad(logp[idx[n]], theta, retain_graph=True, create_graph=False)[0]
                 weighted_score = weighted_score + l_adv[n].detach() * g_n
-            g_batch = weighted_score / float(args.N)
+            g_batch = (float(args.k) * weighted_score) / float(args.N)
 
             g_sum = g_sum + g_batch
 

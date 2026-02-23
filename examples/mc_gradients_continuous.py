@@ -109,7 +109,7 @@ def main() -> None:
             # LR with advantage baseline: grad log N(z|mu,1) wrt mu = z-mu
             score = z - args.mu
             l_adv = os_l.expected_lstat_advantage(x)
-            g_lr = float(np.mean(l_adv * score))
+            g_lr = float(args.k * np.mean(l_adv * score))
 
             rp_sum += g_rp
             lr_sum += g_lr
