@@ -31,11 +31,13 @@ python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 -
   - **dense**: builds dense matrices (`M_inc`, `M_loo`, `M_adv`) used by matmul mode.
 - Reports per-call runtime for unconditional, inclusion (`inc`), advantage (`adv`), and L-advantage methods.
 - Also explicitly compares **full order-stat computation + dot with `a`** versus **direct preweighted L-stat computation** (`with_lstat_weights(a)`), which behaves like computing one weighted statistic directly.
+- `--efficient` runs only efficient/no-dense computations (skips dense precompute and matmul rows).
 
 ```bash
 python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100
 python examples/benchmark_methods.py --backend jax --N 500 --k 40 --repeats 100
 python examples/benchmark_methods.py --backend torch --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 --efficient
 ```
 
 ## 3) Monte Carlo estimator accuracy curve
