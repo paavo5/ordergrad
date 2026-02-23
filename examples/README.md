@@ -75,6 +75,8 @@ python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 -
 `mc_gradients_multiarm.py` (torch-only) compares an LR gradient estimator
 (using the computed L-advantage baseline) against an exact known-(r,p) gradient
 obtained by differentiating the exact objective with torch autograd.
+It applies a `k` multiplier to the LR estimator (`k * mean(adv * score)`),
+which is needed for unbiasedness under this formulation.
 
 ```bash
 python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
@@ -82,9 +84,11 @@ python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,
 
 ## 5) Monte Carlo gradient check (continuous)
 
-`mc_gradients_continuous.py` compares reparameterization (pathwise/RP) and
-advantage-based LR gradient estimators for a continuous Normal-location model with
-a quadratic reward transform.
+`mc_gradients_continuous.py` (torch/autograd-only) compares reparameterization
+(pathwise/RP) and advantage-based LR gradient estimators for a continuous
+Normal-location model with a quadratic reward transform.
+This script also uses the `k` multiplier in the LR estimator (`k * mean(adv * score)`),
+as required for unbiasedness in this setup.
 
 ```bash
 python examples/mc_gradients_continuous.py --N 64 --k 6 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
