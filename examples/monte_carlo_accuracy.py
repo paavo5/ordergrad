@@ -11,27 +11,98 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 
-from ordergrad.numpy_backend import OrderStatTransform
+
+def _load_backend(name: str):
+    """Load requested backend lazily and return helpers."""
+    if name == "np":
+        from ordergrad.numpy_backend import OrderStatTransform
+
+        def to_backend(arr: np.ndarray) -> np.ndarray:
+            return arr
+
+        def to_numpy(arr: Any) -> np.ndarray:
+            return np.asarray(arr)
+
+        return "NumPy", OrderStatTransform, to_backend, to_numpy, np.float64
+
+    if name == "jax":
+        import jax.numpy as jnp
+        from ordergrad.jax_backend import OrderStatTransform
+
+        def to_backend(arr: np.ndarray):
+            return jnp.asarray(arr)
+
+        def to_numpy(arr: Any) -> np.ndarray:
+            return np.asarray(arr)
+
+        return "JAX", OrderStatTransform, to_backend, to_numpy, jnp.float64
+
+    if name == "torch":
+        import torch
+        from ordergrad.torch_backend import OrderStatTransform
+
+        def to_backend(arr: np.ndarray):
+            return torch.tensor(arr, dtype=torch.float64)
+
+        def to_numpy(arr: Any) -> np.ndarray:
+            return arr.detach().cpu().numpy()
+
+        return "PyTorch", OrderStatTransform, to_backend, to_numpy, torch.float64
+
+    raise ValueError(f"Unsupported backend: {name}")
+
+
+class BufferedIndexSampler:
+    """Sample arm indices via large buffered draws for lower overhead."""
+
+    def __init__(self, rng: np.random.Generator, num_arms: int, probs: np.ndarray, *, buffer_size: int):
+        self.rng = rng
+        self.num_arms = int(num_arms)
+        self.probs = np.asarray(probs, dtype=np.float64)
+        self.buffer_size = int(buffer_size)
+        if self.buffer_size <= 0:
+            raise ValueError("buffer_size must be positive")
+        self._buf = np.empty(0, dtype=np.int64)
+        self._pos = 0
+
+    def _refill(self) -> None:
+        self._buf = self.rng.choice(self.num_arms, size=self.buffer_size, replace=True, p=self.probs)
+        self._pos = 0
+
+    def sample(self, n: int) -> np.ndarray:
+        n = int(n)
+        out = np.empty(n, dtype=np.int64)
+        filled = 0
+        while filled < n:
+            if self._pos >= self._buf.size:
+                self._refill()
+            take = min(n - filled, self._buf.size - self._pos)
+            out[filled : filled + take] = self._buf[self._pos : self._pos + take]
+            self._pos += take
+            filled += take
+        return out
 
 
 def _single_batch_estimates(
-    os: OrderStatTransform,
-    rng: np.random.Generator,
+    os,
+    idx_sampler: BufferedIndexSampler,
     *,
     r: np.ndarray,
-    p: np.ndarray,
-    a: np.ndarray,
+    a_backend: Any,
     N: int,
+    to_backend: Callable[[np.ndarray], Any],
+    to_numpy: Callable[[Any], np.ndarray],
 ):
-    idx = rng.choice(len(r), size=N, replace=True, p=p)
-    x = r[idx]
-    v = os.expected_orderstats(x)
-    inc = os.expected_orderstats_inclusion(x)
-    adv = os.expected_orderstats_advantage(x)
-    l_adv = os.expected_lstat_advantage(x, a)
+    idx = idx_sampler.sample(N)
+    x = to_backend(r[idx])
+    v = to_numpy(os.expected_orderstats(x))
+    inc = to_numpy(os.expected_orderstats_inclusion(x))
+    adv = to_numpy(os.expected_orderstats_advantage(x))
+    l_adv = to_numpy(os.expected_lstat_advantage(x, a_backend))
     return v, inc, adv, l_adv, idx
 
 
@@ -50,7 +121,7 @@ def _arm_means_from_items(values: np.ndarray, idx: np.ndarray, m: int) -> tuple[
         means[mask] = sums[mask] / counts[mask]
         return means, counts
 
-    N, k = values.shape
+    _, k = values.shape
     out = np.full((m, k), np.nan, dtype=np.float64)
     for j in range(k):
         sums_j = np.bincount(idx, weights=values[:, j], minlength=m).astype(np.float64)
@@ -67,10 +138,12 @@ def _mean_abs_and_rel_error(est: np.ndarray, exact: np.ndarray, eps: float = 1e-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Plot estimator error vs number of repeated batch estimates (t).")
+    ap.add_argument("--backend", type=str, default="np", choices=["np", "jax", "torch"])
     ap.add_argument("--N", type=int, default=64, help="Batch size per estimator evaluation.")
     ap.add_argument("--k", type=float, default=6.0, help="Estimator k parameter (can be real).")
     ap.add_argument("--num-arms", type=int, default=6, help="Number of arms in the known-(r,p) model.")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--sample-buffer-size", type=int, default=200_000, help="Number of arm indices to pre-sample per buffer refill.")
     ap.add_argument(
         "--t-grid",
         type=str,
@@ -88,6 +161,8 @@ def main() -> None:
     except Exception as e:  # pragma: no cover
         raise SystemExit("matplotlib is required. Install with `pip install matplotlib`.") from e
 
+    backend_name, OrderStatTransform, to_backend, to_numpy, dtype = _load_backend(args.backend)
+
     rng = np.random.default_rng(args.seed)
     if args.num_arms < 2:
         raise SystemExit("--num-arms must be >= 2")
@@ -95,28 +170,31 @@ def main() -> None:
     r = np.sort(rng.normal(loc=0.0, scale=1.0, size=m).astype(np.float64))
     p = rng.dirichlet(np.ones(m, dtype=np.float64)).astype(np.float64)
 
+    idx_sampler = BufferedIndexSampler(rng, m, p, buffer_size=args.sample_buffer_size)
+
     k_ord = int(np.floor(args.k))
     if k_ord < 1:
         raise SystemExit("Need floor(k) >= 1")
     if not (1 <= args.arm_rank <= k_ord):
         raise SystemExit(f"--arm-rank must be in [1, {k_ord}]")
     a = np.linspace(0.3, 1.0, k_ord, dtype=np.float64)
+    a_backend = to_backend(a)
 
     # Batch estimator (unknown-distribution regime).
     os_batch = OrderStatTransform.precompute(
         args.N,
         args.k,
-        dtype=np.float64,
+        dtype=dtype,
         compute_conditional=True,
         compute_leave_one_out=True,
     )
 
     # Exact known-(r,p) target (known-distribution regime).
-    os_exact = OrderStatTransform.precompute(max(args.N, 2), args.k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
-    v_exact = os_exact.expected_orderstats_known_rp(r, p)
-    inc_exact_by_arm = os_exact.expected_orderstats_inclusion_known_rp(r, p)
-    adv_exact_by_arm = os_exact.expected_orderstats_advantage_known_rp(r, p)
-    l_adv_exact_by_arm = os_exact.expected_lstat_advantage_known_rp(r, p, a)
+    os_exact = OrderStatTransform.precompute(max(args.N, 2), args.k, dtype=dtype, compute_conditional=True, compute_leave_one_out=True)
+    v_exact = to_numpy(os_exact.expected_orderstats_known_rp(r, p))
+    inc_exact_by_arm = to_numpy(os_exact.expected_orderstats_inclusion_known_rp(r, p))
+    adv_exact_by_arm = to_numpy(os_exact.expected_orderstats_advantage_known_rp(r, p))
+    l_adv_exact_by_arm = to_numpy(os_exact.expected_lstat_advantage_known_rp(r, p, a_backend))
 
     t_grid = [int(x) for x in args.t_grid.split(",") if x.strip()]
     if any(t <= 0 for t in t_grid):
@@ -142,7 +220,15 @@ def main() -> None:
         ladv_cnt = np.zeros(m, dtype=np.int64)
 
         for i in range(t):
-            v_i, inc_i, adv_i, ladv_i, idx_i = _single_batch_estimates(os_batch, rng, r=r, p=p, a=a, N=args.N)
+            v_i, inc_i, adv_i, ladv_i, idx_i = _single_batch_estimates(
+                os_batch,
+                idx_sampler,
+                r=r,
+                a_backend=a_backend,
+                N=args.N,
+                to_backend=to_backend,
+                to_numpy=to_numpy,
+            )
             vals[i] = v_i
 
             inc_mean_i, cnt_i = _arm_means_from_items(inc_i, idx_i, m)
@@ -219,7 +305,7 @@ def main() -> None:
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=9)
 
-    fig.suptitle(f"Estimator convergence (N={args.N}, k={args.k}, floor(k)={k_ord}, arms={m})")
+    fig.suptitle(f"{backend_name} estimator convergence (N={args.N}, k={args.k}, floor(k)={k_ord}, arms={m})")
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()

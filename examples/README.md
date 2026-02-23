@@ -45,6 +45,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 `monte_carlo_accuracy.py` checks that repeated averages of the **batch estimator** converge to the exact known-`(r,p)` target.
 
 - One estimator run = one batch of `N` sampled values with estimator parameter `k`.
+- `--backend {np,jax,torch}` selects backend lazily (JAX/Torch imported only when requested).
 - `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
 - Plots both **absolute** and **relative** error versus `t` for:
@@ -54,10 +55,13 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
   - L-advantage.
 - Optional `--plot-arm-details` saves an extra figure comparing exact vs estimated per-arm
   inclusion/advantage (for rank selected by `--arm-rank`) and L-advantage at `t=max(t-grid)`.
+- Uses a buffered sampler (`--sample-buffer-size`) that pre-draws many arm indices at once,
+  then serves per-batch requests from that buffer before refilling.
 
 ```bash
-python examples/monte_carlo_accuracy.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
-python examples/monte_carlo_accuracy.py --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
+python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
+python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
 ```
 
 ---
