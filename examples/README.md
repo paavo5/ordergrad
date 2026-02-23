@@ -49,6 +49,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 - `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
 - `--a` sets L-stat weights (single value broadcast or comma list of length `floor(k)`).
+- Internally the script preweights using `with_lstat_weights(a)` so `L-advantage` uses the precomputed fast path even for default `a`.
 - Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
   - inclusion,

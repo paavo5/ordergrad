@@ -89,10 +89,10 @@ class BufferedIndexSampler:
 
 def _single_batch_estimates(
     os,
+    os_l,
     idx_sampler: BufferedIndexSampler,
     *,
     r: np.ndarray,
-    a_backend: Any,
     N: int,
     to_backend: Callable[[np.ndarray], Any],
     to_numpy: Callable[[Any], np.ndarray],
@@ -102,7 +102,7 @@ def _single_batch_estimates(
     v = to_numpy(os.expected_orderstats(x))
     inc = to_numpy(os.expected_orderstats_inclusion(x))
     adv = to_numpy(os.expected_orderstats_advantage(x))
-    l_adv = to_numpy(os.expected_lstat_advantage(x, a_backend))
+    l_adv = to_numpy(os_l.expected_lstat_advantage(x))
     return v, inc, adv, l_adv, idx
 
 
@@ -202,13 +202,15 @@ def main() -> None:
         compute_conditional=True,
         compute_leave_one_out=True,
     )
+    os_batch_l = os_batch.with_lstat_weights(a_backend)
 
     # Exact known-(r,p) target (known-distribution regime).
     os_exact = OrderStatTransform.precompute(max(args.N, 2), args.k, dtype=dtype, compute_conditional=True, compute_leave_one_out=True)
+    os_exact_l = os_exact.with_lstat_weights(a_backend)
     v_exact = to_numpy(os_exact.expected_orderstats_known_rp(r, p))
     inc_exact_by_arm = to_numpy(os_exact.expected_orderstats_inclusion_known_rp(r, p))
     adv_exact_by_arm = to_numpy(os_exact.expected_orderstats_advantage_known_rp(r, p))
-    l_adv_exact_by_arm = to_numpy(os_exact.expected_lstat_advantage_known_rp(r, p, a_backend))
+    l_adv_exact_by_arm = to_numpy(os_exact_l.expected_lstat_advantage_known_rp(r, p, a_backend))
 
     t_grid = [int(x) for x in args.t_grid.split(",") if x.strip()]
     if any(t <= 0 for t in t_grid):
@@ -236,9 +238,9 @@ def main() -> None:
         for i in range(t):
             v_i, inc_i, adv_i, ladv_i, idx_i = _single_batch_estimates(
                 os_batch,
+                os_batch_l,
                 idx_sampler,
                 r=r,
-                a_backend=a_backend,
                 N=args.N,
                 to_backend=to_backend,
                 to_numpy=to_numpy,
