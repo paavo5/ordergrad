@@ -122,6 +122,11 @@ E_loo = os.expected_orderstats_leave_one_out(x)    # (N, os.k)
 adv = os.expected_orderstats_advantage(x)          # (N, os.k)
 
 l_adv = os.expected_lstat_advantage(x, a)          # (N,)
+
+# Preset shorthands are also supported for a:
+#   "TopM:m", "BotM:m", "WinsorizedM:m", "ReMax", "ReMin"
+# ("WindosrizedM:m" is accepted as a compatibility alias for WinsorizedM.)
+l_top2 = os.expected_lstat(x, "TopM:2")
 ```
 
 Common LR-style usage with fixed `a` (preweighted transform):
@@ -196,6 +201,12 @@ Each backend exposes `OrderStatTransform` with:
   - `expected_lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
+  - `a` can be either a numeric vector of shape `(floor(k),)` or a preset string:
+    - `"TopM:m"`: equal weight on top `m` ranks
+    - `"BotM:m"`: equal weight on bottom `m` ranks
+    - `"WinsorizedM:m"`: equal weight on middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
+    - `"ReMax"`: top-1 only
+    - `"ReMin"`: bottom-1 only
 - known-`(r,p)` order-stat methods:
   - `expected_orderstats_known_rp(r, p)`
   - `expected_orderstats_inclusion_known_rp(r, p)`

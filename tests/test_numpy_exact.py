@@ -125,6 +125,37 @@ def test_lstat_identities():
     np.testing.assert_allclose(os.expected_lstat_advantage(x, a), (E_inc @ a) - (E_loo @ a), atol=1e-12, rtol=1e-12)
 
 
+
+
+def test_lstat_presets_match_manual_vectors():
+    N, k = 12, 6
+    x = np.linspace(-1.0, 1.0, N, dtype=np.float64)
+    os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    presets = {
+        "TopM:2": np.array([0, 0, 0, 0, 0.5, 0.5], dtype=np.float64),
+        "BotM:3": np.array([1 / 3, 1 / 3, 1 / 3, 0, 0, 0], dtype=np.float64),
+        "WinsorizedM:2": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
+        "WindosrizedM:2": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
+        "ReMax": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
+        "ReMin": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
+    }
+
+    for spec, a in presets.items():
+        np.testing.assert_allclose(os.expected_lstat(x, spec), os.expected_lstat(x, a), atol=1e-12, rtol=1e-12)
+        np.testing.assert_allclose(os.with_lstat_weights(spec).expected_lstat_advantage(x), os.expected_lstat_advantage(x, a), atol=1e-12, rtol=1e-12)
+
+
+def test_lstat_preset_validation_errors():
+    os = OrderStatTransform.precompute(10, 5, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    with pytest.raises(ValueError, match="requires ':m'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "TopM")
+    with pytest.raises(ValueError, match="Unknown l-stat preset"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "Foo:2")
+    with pytest.raises(ValueError, match=r"WinsorizedM requires 2\*m < k"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "WinsorizedM:3")
+
 def test_preweighted_lstat_and_direct_advantage_match_baseline():
     rng = np.random.default_rng(123)
     N, k = 11, 4

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 try:
     import torch
@@ -355,28 +355,70 @@ class OrderStatTransform:
 
     # -------- L-statistics (reward transforms) --------
 
-    def lstat_weight_by_rank(self, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+    @staticmethod
+    def _preset_lstat_weights(k: int, spec: str, *, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        text = str(spec).strip()
+        if not text:
+            raise ValueError("l-stat preset cannot be empty")
+        name, _, m_txt = text.partition(":")
+        key = name.strip().lower()
+
+        if key in {"remax", "remin"}:
+            if m_txt.strip():
+                raise ValueError(f"{name} does not take an m value")
+            out = torch.zeros((k,), dtype=dtype, device=device)
+            out[k - 1 if key == "remax" else 0] = 1.0
+            return out
+
+        if not m_txt.strip():
+            raise ValueError(f"Preset '{name}' requires ':m' (e.g. {name}:3)")
+        m = int(m_txt)
+        if not (1 <= m <= k):
+            raise ValueError(f"m must satisfy 1 <= m <= {k}")
+
+        out = torch.zeros((k,), dtype=dtype, device=device)
+        if key == "topm":
+            out[k - m :] = 1.0 / m
+        elif key == "botm":
+            out[:m] = 1.0 / m
+        elif key in {"winsorizedm", "windosrizedm"}:
+            if 2 * m >= k:
+                raise ValueError(f"WinsorizedM requires 2*m < k (got m={m}, k={k})")
+            out[m : k - m] = 1.0 / (k - 2 * m)
+        else:
+            raise ValueError(
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, WinsorizedM:m, ReMax, ReMin"
+            )
+        return out
+
+    def _coerce_a(self, a: Any) -> torch.Tensor:
+        if isinstance(a, str):
+            return self._preset_lstat_weights(self.k, a, dtype=self.W.dtype, device=self.W.device)
+        a = torch.as_tensor(a, dtype=self.W.dtype, device=self.W.device)
+        if a.shape != (self.k,):
+            raise ValueError(f"a must be shape ({self.k},)")
+        return a
+
+    def lstat_weight_by_rank(self, a: Optional[Any] = None) -> torch.Tensor:
         if a is None:
             if not hasattr(self, "Wa") or self.Wa is None:
                 raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
             return self.Wa
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+        a = self._coerce_a(a)
         return self.W @ a
 
-    def lstat_weight_by_item(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def lstat_weight_by_item(self, x: torch.Tensor, a: Optional[Any] = None) -> torch.Tensor:
         _, inv = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: torch.Tensor, a: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def expected_lstat(self, x: torch.Tensor, a: Optional[Any] = None) -> torch.Tensor:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return (x_sorted * w_rank).sum()
 
-    def with_lstat_weights(self, a: torch.Tensor) -> "OrderStatTransform":
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+    def with_lstat_weights(self, a: Any) -> "OrderStatTransform":
+        a = self._coerce_a(a)
         out = self.__class__(
             N=self.N,
             k=self.k,
@@ -406,10 +448,10 @@ class OrderStatTransform:
         return out
 
     @classmethod
-    def precompute_lstat(cls, N: int, k: int, a: torch.Tensor, **kwargs) -> "OrderStatTransform":
+    def precompute_lstat(cls, N: int, k: int, a: Any, **kwargs) -> "OrderStatTransform":
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
-    def expected_lstat_inclusion(self, x: torch.Tensor, a: Optional[torch.Tensor] = None, *, method: str = "efficient") -> torch.Tensor:
+    def expected_lstat_inclusion(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
         if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             xa = x_sorted * self.Aa
@@ -423,11 +465,12 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
         E_inc = self.expected_orderstats_inclusion(x, method=method)
-        if a is None or a.shape != (self.k,):
+        if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
+        a = self._coerce_a(a)
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: torch.Tensor, a: Optional[torch.Tensor] = None, *, method: str = "efficient") -> torch.Tensor:
+    def expected_lstat_leave_one_out(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
         if a is None and hasattr(self, "Wma") and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             p1 = x_sorted[:-1] * self.Wma
@@ -441,8 +484,9 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x, method=method)
-        if a is None or a.shape != (self.k,):
+        if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
+        a = self._coerce_a(a)
         return E_loo @ a
 
     def expected_orderstats_advantage(self, x: torch.Tensor, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
@@ -468,23 +512,20 @@ class OrderStatTransform:
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
         return adv.detach() if detach_advantage else adv
 
-    def expected_lstat_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+    def expected_lstat_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
+        a = self._coerce_a(a)
         return self.expected_orderstats_known_rp(r, p) @ a
 
-    def expected_lstat_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+    def expected_lstat_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
+        a = self._coerce_a(a)
         return self.expected_orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: torch.Tensor, *, detach_advantage: bool = True) -> torch.Tensor:
-        if a.shape != (self.k,):
-            raise ValueError(f"a must be shape ({self.k},)")
+    def expected_lstat_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any, *, detach_advantage: bool = True) -> torch.Tensor:
+        a = self._coerce_a(a)
         out = self.expected_orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
         return out.detach() if detach_advantage else out
 
-    def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[torch.Tensor] = None, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
+    def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = (self.M_adv_a @ x_sorted)[inv]

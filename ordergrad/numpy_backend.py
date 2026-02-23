@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 
 # -----------------------------
@@ -318,10 +318,48 @@ class OrderStatTransform:
     M_adv_a: Optional[np.ndarray] = None  # (N,N)
 
     @staticmethod
-    def _validate_a(a: Optional[np.ndarray], k: int) -> np.ndarray:
+    def _preset_lstat_weights(k: int, spec: str, *, dtype) -> np.ndarray:
+        text = str(spec).strip()
+        if not text:
+            raise ValueError("l-stat preset cannot be empty")
+        name, _, m_txt = text.partition(":")
+        key = name.strip().lower()
+
+        if key in {"remax", "remin"}:
+            if m_txt.strip():
+                raise ValueError(f"{name} does not take an m value")
+            out = np.zeros((k,), dtype=dtype)
+            out[k - 1 if key == "remax" else 0] = 1.0
+            return out
+
+        if not m_txt.strip():
+            raise ValueError(f"Preset '{name}' requires ':m' (e.g. {name}:3)")
+        m = int(m_txt)
+        if not (1 <= m <= k):
+            raise ValueError(f"m must satisfy 1 <= m <= {k}")
+
+        out = np.zeros((k,), dtype=dtype)
+        if key == "topm":
+            out[k - m :] = 1.0 / m
+        elif key == "botm":
+            out[:m] = 1.0 / m
+        elif key in {"winsorizedm", "windosrizedm"}:
+            if 2 * m >= k:
+                raise ValueError(f"WinsorizedM requires 2*m < k (got m={m}, k={k})")
+            out[m : k - m] = 1.0 / (k - 2 * m)
+        else:
+            raise ValueError(
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, WinsorizedM:m, ReMax, ReMin"
+            )
+        return out
+
+    @classmethod
+    def _validate_a(cls, a: Any, k: int, *, dtype=np.float64) -> np.ndarray:
         if a is None:
             raise ValueError("a is required unless using a transform precomputed with l-statistic weights.")
-        a = np.asarray(a)
+        if isinstance(a, str):
+            return cls._preset_lstat_weights(k, a, dtype=dtype)
+        a = np.asarray(a, dtype=dtype)
         if a.shape != (k,):
             raise ValueError(f"a must be shape ({k},)")
         return a
@@ -369,7 +407,7 @@ class OrderStatTransform:
 
     def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
         """Return a new transform with preweighted L-statistic coefficients."""
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         Wa = self.W @ a
         Aa = Ba = Ca = Wma = None
         if self.A is not None and self.B is not None and self.C is not None:
@@ -512,7 +550,7 @@ class OrderStatTransform:
             if self.Wa is None:
                 raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
             return self.Wa
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         return self.W @ a
 
     def lstat_weight_by_item(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
@@ -536,7 +574,7 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
         E_inc = self.expected_orderstats_inclusion(x, method=method)
-        return E_inc @ self._validate_a(a, self.k)
+        return E_inc @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
     def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S)] on population with i removed, for all i. Shape (N,)."""
@@ -547,7 +585,7 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x, method=method)
-        return E_loo @ self._validate_a(a, self.k)
+        return E_loo @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
     def _expected_lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
         XA = x_sorted * self.Aa
@@ -596,15 +634,15 @@ class OrderStatTransform:
         return adv
 
     def expected_lstat_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> float:
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         return float(self.expected_orderstats_known_rp(r, p) @ a)
 
     def expected_lstat_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         return self.expected_orderstats_inclusion_known_rp(r, p) @ a
 
     def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         return self.expected_orderstats_advantage_known_rp(r, p) @ a
 
 
