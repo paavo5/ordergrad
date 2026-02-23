@@ -124,6 +124,27 @@ adv = os.expected_orderstats_advantage(x)          # (N, os.k)
 l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 ```
 
+Common LR-style usage with fixed `a` (preweighted transform):
+
+```python
+import numpy as np
+from ordergrad import numpy_backend
+
+N, k = 30, 8
+a = np.ones(int(np.floor(k)), dtype=np.float64) / int(np.floor(k))
+
+# Option 1: explicit two-step preweighting
+os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
+os_l = os.with_lstat_weights(a)
+
+# Option 2: one-shot convenience helper
+# os_l = numpy_backend.OrderStatTransform.precompute_lstat(N, k, a, dtype=np.float64)
+
+x = np.random.randn(N)
+l_adv = os_l.expected_lstat_advantage(x)          # detached by default, shape (N,)
+l_inc = os_l.expected_lstat_inclusion(x)          # shape (N,)
+```
+
 ### NumPy (known `(r,p)` regime)
 
 ```python
