@@ -93,12 +93,20 @@ def main() -> None:
     os_no = OrderStatTransform.precompute(args.N, args.k, dtype=dtype, compute_dense_matrices=False)
     t_pre_no = time.perf_counter() - t_pre_no
 
+    t_pre_lstat_no = time.perf_counter()
+    os_lstat_no = os_no.with_lstat_weights(a)
+    t_pre_lstat_no = time.perf_counter() - t_pre_lstat_no
+
     benchmarks: list[tuple[str, Callable[[], Any]]] = [
         ("orderstats unconditional (always W-based)", lambda: os_no.expected_orderstats(x)),
         ("inc efficient (no-dense)", lambda: os_no.expected_orderstats_inclusion(x, method="efficient")),
         ("adv efficient (no-dense)", lambda: os_no.expected_orderstats_advantage(x, method="efficient")),
         ("L-adv efficient (no-dense; a passed)", lambda: os_no.expected_lstat_advantage(x, a, method="efficient")),
+        ("L-adv direct efficient (no-dense; prew)", lambda: os_lstat_no.expected_lstat_advantage(x, method="efficient")),
         ("L-inc full+dot efficient (no-dense)", lambda: os_no.expected_orderstats_inclusion(x, method="efficient") @ a),
+        ("L-inc direct efficient (no-dense; prew)", lambda: os_lstat_no.expected_lstat_inclusion(x, method="efficient")),
+        ("L-uncond full+dot (no-dense)", lambda: os_no.expected_orderstats(x) @ a),
+        ("L-uncond direct preweighted (no-dense)", lambda: os_lstat_no.expected_lstat(x)),
     ]
 
     t_pre_dense = None
@@ -135,13 +143,14 @@ def main() -> None:
             ]
         )
 
-    print(f"Precompute time (no-dense):      {t_pre_no*1e3:10.3f} ms")
+    print(f"Precompute time (no-dense):           {t_pre_no*1e3:10.3f} ms")
+    print(f"Precompute time (no-dense+lstat a):   {t_pre_lstat_no*1e3:10.3f} ms")
     if t_pre_dense is not None and t_pre_lstat is not None:
-        print(f"Precompute time (dense):         {t_pre_dense*1e3:10.3f} ms")
-        print(f"Precompute time (dense+lstat a): {t_pre_lstat*1e3:10.3f} ms")
+        print(f"Precompute time (dense):              {t_pre_dense*1e3:10.3f} ms")
+        print(f"Precompute time (dense+lstat a):      {t_pre_lstat*1e3:10.3f} ms")
     else:
-        print("Precompute time (dense):         skipped (--efficient enabled)")
-        print("Precompute time (dense+lstat a): skipped (--efficient enabled)")
+        print("Precompute time (dense):              skipped (--efficient enabled)")
+        print("Precompute time (dense+lstat a):      skipped (--efficient enabled)")
 
     print("\nAverage per-call runtime:")
     for name, fn in benchmarks:
