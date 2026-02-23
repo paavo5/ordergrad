@@ -31,7 +31,7 @@ def _single_batch_estimates(
     v = os.expected_orderstats(x)
     adv = os.expected_orderstats_advantage(x)
     l_adv = os.expected_lstat_advantage(x, a)
-    return v, adv, l_adv
+    return v, adv, l_adv, idx
 
 
 def main() -> None:
@@ -79,11 +79,7 @@ def main() -> None:
     adv_exact_by_arm = os_exact.expected_orderstats_advantage_known_rp(r, p)
     l_adv_exact_by_arm = os_exact.expected_lstat_advantage_known_rp(r, p, a)
 
-    # Batch advantages are indexed by items in a sampled batch (shape N x k or N).
-    # To compare against known-(r,p), use the arm-marginal targets for a random sampled item:
-    # E_b~p[adv[b, :]] and E_b~p[l_adv[b]].
-    adv_exact = p @ adv_exact_by_arm
-    l_adv_exact = p @ l_adv_exact_by_arm
+    # For advantage quantities we compare per-arm values directly (no p-weighting).
 
     t_grid = [int(x) for x in args.t_grid.split(",") if x.strip()]
     if any(t <= 0 for t in t_grid):
@@ -95,21 +91,37 @@ def main() -> None:
 
     for t in t_grid:
         vals = np.zeros((t, k_ord), dtype=np.float64)
-        advs = np.zeros((t, args.N, k_ord), dtype=np.float64)
-        ladvs = np.zeros((t, args.N), dtype=np.float64)
+
+        m = len(r)
+        adv_sum = np.zeros((m, k_ord), dtype=np.float64)
+        adv_cnt = np.zeros(m, dtype=np.int64)
+        ladv_sum = np.zeros(m, dtype=np.float64)
+        ladv_cnt = np.zeros(m, dtype=np.int64)
+
         for i in range(t):
-            v_i, adv_i, ladv_i = _single_batch_estimates(os_batch, rng, r=r, p=p, a=a, N=args.N)
+            v_i, adv_i, ladv_i, idx_i = _single_batch_estimates(os_batch, rng, r=r, p=p, a=a, N=args.N)
             vals[i] = v_i
-            advs[i] = adv_i
-            ladvs[i] = ladv_i
+
+            for b in range(m):
+                mask = idx_i == b
+                if np.any(mask):
+                    adv_sum[b] += adv_i[mask].sum(axis=0)
+                    adv_cnt[b] += int(mask.sum())
+                    ladv_sum[b] += float(ladv_i[mask].sum())
+                    ladv_cnt[b] += int(mask.sum())
 
         v_mean = vals.mean(axis=0)
-        adv_mean = advs.mean(axis=(0, 1))
-        ladv_mean = ladvs.mean(axis=(0, 1))
+
+        adv_est_by_arm = np.full((m, k_ord), np.nan, dtype=np.float64)
+        ladv_est_by_arm = np.full(m, np.nan, dtype=np.float64)
+        have_adv = adv_cnt > 0
+        have_ladv = ladv_cnt > 0
+        adv_est_by_arm[have_adv] = adv_sum[have_adv] / adv_cnt[have_adv, None]
+        ladv_est_by_arm[have_ladv] = ladv_sum[have_ladv] / ladv_cnt[have_ladv]
 
         err_v.append(float(np.mean(np.abs(v_mean - v_exact))))
-        err_adv.append(float(np.mean(np.abs(adv_mean - adv_exact))))
-        err_ladv.append(float(np.abs(ladv_mean - l_adv_exact)))
+        err_adv.append(float(np.nanmean(np.abs(adv_est_by_arm - adv_exact_by_arm))))
+        err_ladv.append(float(np.nanmean(np.abs(ladv_est_by_arm - l_adv_exact_by_arm))))
 
     fig, ax = plt.subplots(figsize=(8.5, 5.3))
     ax.plot(t_grid, err_v, marker="o", label="order-stats mean abs error")
