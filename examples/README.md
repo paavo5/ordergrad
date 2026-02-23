@@ -48,6 +48,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 - `--backend {np,jax,torch}` selects backend lazily (JAX/Torch imported only when requested).
 - `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
+- `--a` sets L-stat weights (single value broadcast or comma list of length `floor(k)`).
 - Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
   - inclusion,
@@ -62,6 +63,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
 python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
 python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a 0.2,0.1,0.3,0.15,0.1,0.15
 ```
 
 ---
