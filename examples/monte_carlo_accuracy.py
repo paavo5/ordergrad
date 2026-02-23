@@ -76,8 +76,14 @@ def main() -> None:
     # Exact known-(r,p) target (known-distribution regime).
     os_exact = OrderStatTransform.precompute(max(args.N, 2), args.k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
     v_exact = os_exact.expected_orderstats_known_rp(r, p)
-    adv_exact = os_exact.expected_orderstats_advantage_known_rp(r, p)
-    l_adv_exact = os_exact.expected_lstat_advantage_known_rp(r, p, a)
+    adv_exact_by_arm = os_exact.expected_orderstats_advantage_known_rp(r, p)
+    l_adv_exact_by_arm = os_exact.expected_lstat_advantage_known_rp(r, p, a)
+
+    # Batch advantages are indexed by items in a sampled batch (shape N x k or N).
+    # To compare against known-(r,p), use the arm-marginal targets for a random sampled item:
+    # E_b~p[adv[b, :]] and E_b~p[l_adv[b]].
+    adv_exact = p @ adv_exact_by_arm
+    l_adv_exact = p @ l_adv_exact_by_arm
 
     t_grid = [int(x) for x in args.t_grid.split(",") if x.strip()]
     if any(t <= 0 for t in t_grid):
@@ -98,12 +104,12 @@ def main() -> None:
             ladvs[i] = ladv_i
 
         v_mean = vals.mean(axis=0)
-        adv_mean = advs.mean(axis=0)
-        ladv_mean = ladvs.mean(axis=0)
+        adv_mean = advs.mean(axis=(0, 1))
+        ladv_mean = ladvs.mean(axis=(0, 1))
 
         err_v.append(float(np.mean(np.abs(v_mean - v_exact))))
         err_adv.append(float(np.mean(np.abs(adv_mean - adv_exact))))
-        err_ladv.append(float(np.mean(np.abs(ladv_mean - l_adv_exact))))
+        err_ladv.append(float(np.abs(ladv_mean - l_adv_exact)))
 
     fig, ax = plt.subplots(figsize=(8.5, 5.3))
     ax.plot(t_grid, err_v, marker="o", label="order-stats mean abs error")

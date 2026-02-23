@@ -78,17 +78,8 @@ A primary use-case is gradient estimation for order-statistic objectives:
 - **Reparameterization-style gradient:** differentiating the computed batch quantity (e.g. `expected_lstat(...)`) gives an unbiased reparameterization-style estimator under the ranknote assumptions.
 - **Likelihood-ratio-style gradient:** using the computed advantage term in a score-function estimator yields an unbiased estimator with typically lower variance.
 
-To support this explicitly, advantage APIs in differentiable backends include `detach_advantage=` (default `True`).
-
-- `detach_advantage=True` (default): advantage values are stop-grad/detached before returning, matching common LR-style usage where the advantage is treated as a baseline/weight.
-- `detach_advantage=False`: gradients are allowed to flow through the advantage transform itself.
-
-This flag is available on:
-
-- `expected_orderstats_advantage(...)`
-- `expected_lstat_advantage(...)`
-- `expected_orderstats_advantage_known_rp(...)`
-- `expected_lstat_advantage_known_rp(...)`
+By default, advantage outputs are detached from the computation graph (`detach_advantage=True`).
+If needed for experimentation, this can be disabled by setting `detach_advantage=False`.
 
 ---
 
