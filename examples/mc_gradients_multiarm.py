@@ -45,6 +45,17 @@ class BufferedIndexSampler:
         return out
 
 
+def _safe_for_logplot(vals, eps: float = 1e-16):
+    """Ensure strictly positive values for log-scaled plots."""
+    out = []
+    for v in vals:
+        fv = float(v)
+        if not (fv > 0.0):
+            fv = eps
+        out.append(fv)
+    return out
+
+
 def _parse_a(spec: str | None, k_ord: int, *, device, dtype):
     if spec is None:
         return torch.linspace(0.3, 1.0, steps=k_ord, dtype=dtype, device=device)
@@ -146,8 +157,11 @@ def main() -> None:
     g_exact_np = g_exact.detach().cpu().numpy()
     g_last_np = g_last.detach().cpu().numpy() if g_last is not None else None
 
+    abs_err_plot = _safe_for_logplot(abs_err)
+    rel_err_plot = _safe_for_logplot(rel_err)
+
     fig, axes = plt.subplots(1, 2, figsize=(12, 5.2))
-    axes[0].plot(t_grid, abs_err, marker="o")
+    axes[0].plot(t_grid, abs_err_plot, marker="o")
     axes[0].set_xscale("log")
     axes[0].set_yscale("log")
     axes[0].set_title("Multi-arm LR gradient: absolute error")
@@ -155,7 +169,7 @@ def main() -> None:
     axes[0].set_ylabel("mean abs error")
     axes[0].grid(True, which="both", alpha=0.3)
 
-    axes[1].plot(t_grid, rel_err, marker="s")
+    axes[1].plot(t_grid, rel_err_plot, marker="s")
     axes[1].set_xscale("log")
     axes[1].set_yscale("log")
     axes[1].set_title("Multi-arm LR gradient: relative error")
