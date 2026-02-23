@@ -12,6 +12,8 @@ from pathlib import Path
 
 from typing import Any
 
+import torch
+
 
 class BufferedIndexSampler:
     """Sample arm indices via buffered categorical draws."""
@@ -75,10 +77,9 @@ def main() -> None:
         raise SystemExit("matplotlib is required. Install with `pip install matplotlib`.") from e
 
     try:
-        import torch
         from ordergrad.torch_backend import OrderStatTransform
     except Exception as e:  # pragma: no cover
-        raise SystemExit("torch is required for this example. Install with `pip install torch`.") from e
+        raise SystemExit("torch/ordergrad torch backend is required for this example. Install with `pip install torch`.") from e
 
     torch.manual_seed(args.seed)
     device = torch.device("cpu")
