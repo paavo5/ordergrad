@@ -12,13 +12,15 @@ These scripts are intended as a hands-on playground for understanding and profil
 - `--ranks` supports explicit lists and inclusive ranges: e.g. `1,3..6,10`.
 - Optional `--a` lets you define sparse L-stat coefficients on listed ranks:
   - one value: broadcast to all listed ranks,
-  - or one value per listed rank.
+  - or one value per listed rank,
+  - or a preset string (e.g. `TopM:3`, `Median`, `TopBot:2`).
 - In conditional mode, `--show-delta` overlays `W_cond - W`.
 - In conditional mode, `--show-leave-one-out` overlays leave-one-out weights for excluding the same conditioned rank.
 
 ```bash
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10,15,20
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a 0.25
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a TopM:3
 python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-delta
 python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-leave-one-out
 ```
@@ -50,7 +52,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 - `--backend {np,jax,torch}` selects backend lazily (JAX/Torch imported only when requested).
 - `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
-- `--a` sets L-stat weights (single value broadcast or comma list of length `floor(k)`).
+- `--a` sets L-stat weights (single value broadcast, comma list of length `floor(k)`, or preset string such as `TopM:3`).
 - Internally the script preweights using `with_lstat_weights(a)` so `L-advantage` uses the precomputed fast path even for default `a`.
 - Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
@@ -66,6 +68,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
 python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
 python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a TopM:3
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a 0.2,0.1,0.3,0.15,0.1,0.15
 ```
 

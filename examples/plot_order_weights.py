@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from ordergrad.numpy_backend import (
+    OrderStatTransform,
     precompute_ABC_conditional_including_rank,
     precompute_W_leave_one_out,
     precompute_W_unconditional,
@@ -55,7 +56,14 @@ def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
 
 
 def _parse_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
-    vals = [float(x) for x in spec.split(",") if x.strip()]
+    text = spec.strip()
+    if any(ch.isalpha() for ch in text):
+        try:
+            return OrderStatTransform._preset_lstat_weights(k_ord, text, dtype=np.float64)
+        except Exception as e:
+            raise SystemExit(f"Invalid preset for --a: {e}") from e
+
+    vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:
         raise SystemExit("--a was provided but no weights were parsed.")
     if len(vals) == 1:
@@ -85,7 +93,7 @@ def main() -> None:
         default=None,
         help=(
             "Optional L-stat weights for listed ranks. "
-            "Provide either one value (broadcast to all listed ranks) or one value per listed rank."
+            "Provide either one value (broadcast to all listed ranks), one value per listed rank, or a preset string (e.g. TopM:3, Median)."
         ),
     )
     parser.add_argument(

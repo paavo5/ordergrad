@@ -59,13 +59,16 @@ def _safe_for_logplot(vals, eps: float = 1e-16):
 def _parse_a(spec: str | None, k_ord: int, *, device, dtype):
     if spec is None:
         return torch.linspace(0.3, 1.0, steps=k_ord, dtype=dtype, device=device)
-    vals = [float(x) for x in spec.split(",") if x.strip()]
+    text = spec.strip()
+    if any(ch.isalpha() for ch in text):
+        return text
+    vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:
         raise SystemExit("--a was provided but no values were parsed.")
     if len(vals) == 1:
         vals = vals * k_ord
     elif len(vals) != k_ord:
-        raise SystemExit(f"--a must have either 1 value or exactly floor(k)={k_ord} values.")
+        raise SystemExit(f"--a must have either 1 value, exactly floor(k)={k_ord} values, or a preset string.")
     return torch.tensor(vals, dtype=dtype, device=device)
 
 

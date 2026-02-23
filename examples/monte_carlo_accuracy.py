@@ -130,16 +130,19 @@ def _arm_means_from_items(values: np.ndarray, idx: np.ndarray, m: int) -> tuple[
     return out, counts
 
 
-def _parse_a(spec: str | None, k_ord: int) -> np.ndarray:
+def _parse_a(spec: str | None, k_ord: int):
     if spec is None:
         return np.linspace(0.3, 1.0, k_ord, dtype=np.float64)
-    vals = [float(x) for x in spec.split(",") if x.strip()]
+    text = spec.strip()
+    if any(ch.isalpha() for ch in text):
+        return text
+    vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:
         raise SystemExit("--a was provided but no values were parsed.")
     if len(vals) == 1:
         vals = vals * k_ord
     elif len(vals) != k_ord:
-        raise SystemExit(f"--a must have either 1 value or exactly floor(k)={k_ord} values.")
+        raise SystemExit(f"--a must have either 1 value, exactly floor(k)={k_ord} values, or a preset string.")
     return np.asarray(vals, dtype=np.float64)
 
 
@@ -155,7 +158,7 @@ def main() -> None:
     ap.add_argument("--N", type=int, default=64, help="Batch size per estimator evaluation.")
     ap.add_argument("--k", type=float, default=6.0, help="Estimator k parameter (can be real).")
     ap.add_argument("--num-arms", type=int, default=6, help="Number of arms in the known-(r,p) model.")
-    ap.add_argument("--a", type=str, default=None, help="L-stat weights: single value (broadcast) or comma-separated floor(k)-vector.")
+    ap.add_argument("--a", type=str, default=None, help="L-stat weights: single value (broadcast), comma-separated floor(k)-vector, or preset string (e.g. TopM:3).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000, help="Number of arm indices to pre-sample per buffer refill.")
     ap.add_argument(
