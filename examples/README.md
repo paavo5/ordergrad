@@ -67,6 +67,27 @@ python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a 0.2,0.1,0.3,0.15,0.1,0.15
 ```
 
+
+## 4) Monte Carlo gradient check (multi-arm)
+
+`mc_gradients_multiarm.py` compares an LR gradient estimator (using the computed
+L-advantage baseline) against an exact finite-difference gradient of the known-(r,p)
+objective with respect to arm logits.
+
+```bash
+python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
+```
+
+## 5) Monte Carlo gradient check (continuous)
+
+`mc_gradients_continuous.py` compares reparameterization (pathwise/RP) and
+advantage-based LR gradient estimators for a continuous Normal-location model with
+a quadratic reward transform.
+
+```bash
+python examples/mc_gradients_continuous.py --N 64 --k 6 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
+```
+
 ---
 
 ## Notes
