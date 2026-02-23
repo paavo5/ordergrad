@@ -14,11 +14,13 @@ These scripts are intended as a hands-on playground for understanding and profil
   - one value: broadcast to all listed ranks,
   - or one value per listed rank.
 - In conditional mode, `--show-delta` overlays `W_cond - W`.
+- In conditional mode, `--show-leave-one-out` overlays leave-one-out weights for excluding the same conditioned rank.
 
 ```bash
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10,15,20
 python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a 0.25
 python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-delta
+python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-leave-one-out
 ```
 
 ## 2) Benchmark methods

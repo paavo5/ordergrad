@@ -18,6 +18,7 @@ import numpy as np
 
 from ordergrad.numpy_backend import (
     precompute_ABC_conditional_including_rank,
+    precompute_W_leave_one_out,
     precompute_W_unconditional,
 )
 
@@ -105,6 +106,14 @@ def main() -> None:
         action="store_true",
         help="In conditional mode, also plot the change vs unconditional: W_cond - W.",
     )
+    parser.add_argument(
+        "--show-leave-one-out",
+        action="store_true",
+        help=(
+            "In conditional mode, also plot leave-one-out weights for excluding "
+            "the same conditioned rank."
+        ),
+    )
     parser.add_argument("--output", type=str, default="examples/artifacts/order_weights.png", help="Output PNG path.")
     parser.add_argument("--show", action="store_true", help="Show interactive window in addition to saving.")
     args = parser.parse_args()
@@ -141,6 +150,15 @@ def main() -> None:
         W_cond[r - 1, :] = B[r - 1, :]
         W_cond[r:, :] = C[r:, :]
 
+        W_loo = None
+        if args.show_leave_one_out:
+            if args.k > args.N - 1:
+                raise SystemExit("--show-leave-one-out requires k <= N-1.")
+            Wm = precompute_W_leave_one_out(args.N, args.k, dtype=np.float64)
+            W_loo = np.zeros_like(W)
+            W_loo[: r - 1, :] = Wm[: r - 1, :]
+            W_loo[r:, :] = Wm[r - 1 :, :]
+
         title = (
             "Conditional inclusion weights "
             f"W_cond[r,m,j] with conditioned sorted rank r={r} (N={args.N}, k={args.k}, floor(k)={k_ord})"
@@ -148,6 +166,8 @@ def main() -> None:
         for j in ranks:
             ax.plot(m, W_cond[:, j - 1], label=f"cond j={j}")
             ax.plot(m, W[:, j - 1], linestyle=":", alpha=0.8, label=f"uncond j={j}")
+            if W_loo is not None:
+                ax.plot(m, W_loo[:, j - 1], linestyle="-.", alpha=0.9, label=f"loo-excl j={j}")
             if args.show_delta:
                 ax.plot(m, W_cond[:, j - 1] - W[:, j - 1], linestyle="--", alpha=0.9, label=f"delta j={j}")
 
@@ -170,6 +190,16 @@ def main() -> None:
                 linewidth=1.5,
                 label="combined unconditional W @ a",
             )
+            if W_loo is not None:
+                w_rank_loo = W_loo @ a
+                ax.plot(
+                    m,
+                    w_rank_loo,
+                    color="black",
+                    linestyle="-.",
+                    linewidth=1.5,
+                    label="combined leave-one-out excl @ a",
+                )
             if args.show_delta:
                 ax.plot(
                     m,
