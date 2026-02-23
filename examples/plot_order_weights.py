@@ -154,8 +154,7 @@ def main() -> None:
         if a is not None:
             w_rank_cond = W_cond @ a
             w_rank_uncond = W @ a
-            ax2 = ax.twinx()
-            ax2.plot(
+            ax.plot(
                 m,
                 w_rank_cond,
                 color="black",
@@ -163,7 +162,7 @@ def main() -> None:
                 linewidth=1.8,
                 label="combined conditional W_cond @ a",
             )
-            ax2.plot(
+            ax.plot(
                 m,
                 w_rank_uncond,
                 color="black",
@@ -172,7 +171,7 @@ def main() -> None:
                 label="combined unconditional W @ a",
             )
             if args.show_delta:
-                ax2.plot(
+                ax.plot(
                     m,
                     w_rank_cond - w_rank_uncond,
                     color="gray",
@@ -180,8 +179,6 @@ def main() -> None:
                     linewidth=1.3,
                     label="combined delta",
                 )
-            ax2.set_ylabel("combined rank weight")
-            ax2.legend(loc="upper right", fontsize=8)
 
     ax.set_title(title)
     ax.set_xlabel("sorted index m")
@@ -191,10 +188,7 @@ def main() -> None:
 
     if a is not None and args.mode == "unconditional":
         w_rank = W @ a
-        ax2 = ax.twinx()
-        ax2.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined W @ a")
-        ax2.set_ylabel("combined rank weight")
-        ax2.legend(loc="upper right", fontsize=8)
+        ax.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined W @ a")
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
