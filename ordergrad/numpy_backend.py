@@ -10,6 +10,91 @@ from typing import Any, Optional, Tuple
 import math
 
 
+def _betainc_regularized(a: float, b: float, x: float) -> float:
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+
+    def _betacf(aa: float, bb: float, xx: float) -> float:
+        qab = aa + bb
+        qap = aa + 1.0
+        qam = aa - 1.0
+        c = 1.0
+        d = 1.0 - qab * xx / qap
+        if abs(d) < 1e-30:
+            d = 1e-30
+        d = 1.0 / d
+        h = d
+        for m in range(1, 201):
+            m2 = 2 * m
+            num = m * (bb - m) * xx / ((qam + m2) * (aa + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            h *= d * c
+
+            num = -(aa + m) * (qab + m) * xx / ((aa + m2) * (qap + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            delta = d * c
+            h *= delta
+            if abs(delta - 1.0) < 3e-14:
+                break
+        return h
+
+    ln_bt = (
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log1p(-x)
+    )
+    bt = math.exp(ln_bt)
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
+def _harrell_davis_weights(k: int, q: float, *, dtype=np.float64) -> np.ndarray:
+    if not (0.0 <= q <= 1.0):
+        raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
+    a = (k + 1) * q
+    b = (k + 1) * (1.0 - q)
+    u_hi = np.arange(1, k + 1, dtype=np.float64) / float(k)
+    u_lo = np.arange(0, k, dtype=np.float64) / float(k)
+    w = np.array([_betainc_regularized(a, b, hi) - _betainc_regularized(a, b, lo) for lo, hi in zip(u_lo, u_hi)], dtype=np.float64)
+    return np.asarray(w, dtype=dtype)
+
+
+def _l_moment_weights(k: int, r: int, *, dtype=np.float64) -> np.ndarray:
+    if not (1 <= r <= k):
+        raise ValueError(f"LMoment:r requires integer r with 1 <= r <= k (got r={r}, k={k})")
+
+    def _b_weights(t: int) -> np.ndarray:
+        w = np.zeros((k,), dtype=np.float64)
+        den = math.comb(k - 1, t - 1)
+        for j in range(t, k + 1):
+            w[j - 1] = math.comb(j - 1, t - 1) / den
+        return w / float(k)
+
+    out = np.zeros((k,), dtype=np.float64)
+    for m in range(r):
+        sign = -1.0 if (m % 2) else 1.0
+        coeff = sign * math.comb(r - 1, m) / math.comb(r - 1 + m, m)
+        out += coeff * _b_weights(r - m)
+    return np.asarray(out / float(r), dtype=dtype)
+
+
 def _log_gamma_np(x):
     """Vectorized log-gamma using Python's math.lgamma."""
     x = np.asarray(x, dtype=np.float64)
@@ -325,12 +410,36 @@ class OrderStatTransform:
         name, _, m_txt = text.partition(":")
         key = name.strip().lower()
 
-        if key in {"remax", "remin"}:
+        if key in {"remax", "remin", "median", "ginimeandifference", "gmd"}:
             if m_txt.strip():
                 raise ValueError(f"{name} does not take an m value")
             out = np.zeros((k,), dtype=dtype)
-            out[k - 1 if key == "remax" else 0] = 1.0
+            if key == "remax":
+                out[k - 1] = 1.0
+            elif key == "remin":
+                out[0] = 1.0
+            elif key == "median":
+                if k % 2 == 1:
+                    out[k // 2] = 1.0
+                else:
+                    out[(k // 2) - 1] = 0.5
+                    out[k // 2] = 0.5
+            else:  # Gini mean difference
+                j = np.arange(1, k + 1, dtype=dtype)
+                out = (2.0 * (2.0 * j - (k + 1.0))) / (k * (k - 1.0))
             return out
+
+        if key == "harrelldavis":
+            if not m_txt.strip():
+                raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
+            q = float(m_txt)
+            return _harrell_davis_weights(k, q, dtype=dtype)
+
+        if key == "lmoment":
+            if not m_txt.strip():
+                raise ValueError("Preset 'LMoment' requires ':r' (e.g. LMoment:2)")
+            r = int(m_txt)
+            return _l_moment_weights(k, r, dtype=dtype)
 
         if not m_txt.strip():
             raise ValueError(f"Preset '{name}' requires ':m' (e.g. {name}:3)")
@@ -343,13 +452,22 @@ class OrderStatTransform:
             out[k - m :] = 1.0 / m
         elif key == "botm":
             out[:m] = 1.0 / m
+        elif key == "midrangem":
+            out[:m] = 0.5 / m
+            out[k - m :] += 0.5 / m
         elif key in {"winsorizedm", "windosrizedm"}:
             if 2 * m >= k:
                 raise ValueError(f"WinsorizedM requires 2*m < k (got m={m}, k={k})")
+            out[m : k - m] = 1.0 / k
+            out[m] += m / k
+            out[k - m - 1] += m / k
+        elif key in {"trimm", "trimmedm", "trimmeanm"}:
+            if 2 * m >= k:
+                raise ValueError(f"TrimM requires 2*m < k (got m={m}, k={k})")
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, WinsorizedM:m, ReMax, ReMin"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 

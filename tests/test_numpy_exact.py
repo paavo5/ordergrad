@@ -135,15 +135,50 @@ def test_lstat_presets_match_manual_vectors():
     presets = {
         "TopM:2": np.array([0, 0, 0, 0, 0.5, 0.5], dtype=np.float64),
         "BotM:3": np.array([1 / 3, 1 / 3, 1 / 3, 0, 0, 0], dtype=np.float64),
-        "WinsorizedM:2": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
-        "WindosrizedM:2": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
+        "TrimM:1": np.array([0, 0.25, 0.25, 0.25, 0.25, 0], dtype=np.float64),
+        "WinsorizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
+        "WindosrizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
+        "MidrangeM:2": np.array([0.25, 0.25, 0, 0, 0.25, 0.25], dtype=np.float64),
         "ReMax": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "ReMin": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
+        "Median": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
+        "GiniMeanDifference": np.array([-1 / 3, -1 / 5, -1 / 15, 1 / 15, 1 / 5, 1 / 3], dtype=np.float64),
+        "LMoment:1": np.ones((k,), dtype=np.float64) / k,
     }
 
     for spec, a in presets.items():
         np.testing.assert_allclose(os.expected_lstat(x, spec), os.expected_lstat(x, a), atol=1e-12, rtol=1e-12)
         np.testing.assert_allclose(os.with_lstat_weights(spec).expected_lstat_advantage(x), os.expected_lstat_advantage(x, a), atol=1e-12, rtol=1e-12)
+
+
+def test_winsorized_differs_from_trimmed_and_matches_definition():
+    k = 8
+    x = np.linspace(-2.0, 3.0, k, dtype=np.float64)
+    os = OrderStatTransform.precompute(k, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=False)
+    m = 2
+    trim = os.expected_lstat(x, f"TrimM:{m}")
+    wins = os.expected_lstat(x, f"WinsorizedM:{m}")
+
+    xw = x.copy()
+    xw[:m] = x[m]
+    xw[-m:] = x[-m - 1]
+    expected_wins = float(np.mean(xw))
+
+    assert wins != trim
+    np.testing.assert_allclose(wins, expected_wins, atol=1e-12, rtol=1e-12)
+
+
+def test_harrell_davis_weights_form_valid_quantile_l_estimator():
+    k = 9
+    x = np.linspace(-1.0, 1.0, k, dtype=np.float64)
+    os = OrderStatTransform.precompute(k, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=False)
+    q = 0.5
+    hd = os.with_lstat_weights(f"HarrellDavis:{q}")
+
+    w_rank = hd.lstat_weight_by_rank()
+    assert np.all(w_rank >= -1e-14)
+    np.testing.assert_allclose(np.sum(w_rank), 1.0, atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(hd.expected_lstat(x), os.expected_lstat(x, f"HarrellDavis:{q}"), atol=1e-12, rtol=1e-12)
 
 
 def test_lstat_preset_validation_errors():
@@ -153,8 +188,14 @@ def test_lstat_preset_validation_errors():
         os.expected_lstat(np.arange(10, dtype=np.float64), "TopM")
     with pytest.raises(ValueError, match="Unknown l-stat preset"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "Foo:2")
+    with pytest.raises(ValueError, match=r"TrimM requires 2\*m < k"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "TrimM:3")
     with pytest.raises(ValueError, match=r"WinsorizedM requires 2\*m < k"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "WinsorizedM:3")
+    with pytest.raises(ValueError, match="requires ':q'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "HarrellDavis")
+    with pytest.raises(ValueError, match="requires ':r'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "LMoment")
 
 def test_preweighted_lstat_and_direct_advantage_match_baseline():
     rng = np.random.default_rng(123)
@@ -307,4 +348,3 @@ def test_known_rp_exact_matches_bruteforce_small_case():
 
     np.testing.assert_allclose(adv, q - v[None, :], atol=1e-12, rtol=1e-12)
     np.testing.assert_allclose((p[:, None] * adv).sum(axis=0), np.zeros_like(v), atol=1e-12, rtol=1e-12)
-

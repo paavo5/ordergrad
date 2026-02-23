@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Optional, Tuple
 
 try:
     import jax
     import jax.numpy as jnp
-    from jax.scipy.special import gammaln
+    from jax.scipy.special import betainc, gammaln
 except Exception as e:  # pragma: no cover
     raise ImportError(
         "ordergrad.jax_backend requires JAX + jaxlib. "
@@ -325,12 +326,50 @@ class OrderStatTransform:
         name, _, m_txt = text.partition(":")
         key = name.strip().lower()
 
-        if key in {"remax", "remin"}:
+        if key in {"remax", "remin", "median", "ginimeandifference", "gmd"}:
             if m_txt.strip():
                 raise ValueError(f"{name} does not take an m value")
             out = jnp.zeros((k,), dtype=dtype)
-            idx = k - 1 if key == "remax" else 0
-            return out.at[idx].set(1.0)
+            if key == "remax":
+                return out.at[k - 1].set(1.0)
+            if key == "remin":
+                return out.at[0].set(1.0)
+            if key == "median":
+                if k % 2 == 1:
+                    return out.at[k // 2].set(1.0)
+                return out.at[(k // 2) - 1].set(0.5).at[k // 2].set(0.5)
+            j = jnp.arange(1, k + 1, dtype=dtype)
+            return (2.0 * (2.0 * j - (k + 1.0))) / (k * (k - 1.0))
+
+        if key == "harrelldavis":
+            if not m_txt.strip():
+                raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
+            q = float(m_txt)
+            if not (0.0 <= q <= 1.0):
+                raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
+            a = (k + 1) * q
+            b = (k + 1) * (1.0 - q)
+            u_hi = jnp.arange(1, k + 1, dtype=dtype) / float(k)
+            u_lo = jnp.arange(0, k, dtype=dtype) / float(k)
+            return betainc(a, b, u_hi) - betainc(a, b, u_lo)
+
+        if key == "lmoment":
+            if not m_txt.strip():
+                raise ValueError("Preset 'LMoment' requires ':r' (e.g. LMoment:2)")
+            r = int(m_txt)
+            if not (1 <= r <= k):
+                raise ValueError(f"LMoment:r requires integer r with 1 <= r <= k (got r={r}, k={k})")
+            out = jnp.zeros((k,), dtype=dtype)
+            for m in range(r):
+                sign = -1.0 if (m % 2) else 1.0
+                coeff = sign * math.comb(r - 1, m) / math.comb(r - 1 + m, m)
+                t = r - m
+                den = math.comb(k - 1, t - 1)
+                b_w = jnp.zeros((k,), dtype=dtype)
+                for j in range(t, k + 1):
+                    b_w = b_w.at[j - 1].set(math.comb(j - 1, t - 1) / den)
+                out = out + coeff * (b_w / float(k))
+            return out / float(r)
 
         if not m_txt.strip():
             raise ValueError(f"Preset '{name}' requires ':m' (e.g. {name}:3)")
@@ -343,13 +382,22 @@ class OrderStatTransform:
             out = out.at[k - m :].set(1.0 / m)
         elif key == "botm":
             out = out.at[:m].set(1.0 / m)
+        elif key == "midrangem":
+            out = out.at[:m].set(0.5 / m)
+            out = out.at[k - m :].add(0.5 / m)
         elif key in {"winsorizedm", "windosrizedm"}:
             if 2 * m >= k:
                 raise ValueError(f"WinsorizedM requires 2*m < k (got m={m}, k={k})")
+            out = out.at[m : k - m].set(1.0 / k)
+            out = out.at[m].add(m / k)
+            out = out.at[k - m - 1].add(m / k)
+        elif key in {"trimm", "trimmedm", "trimmeanm"}:
+            if 2 * m >= k:
+                raise ValueError(f"TrimM requires 2*m < k (got m={m}, k={k})")
             out = out.at[m : k - m].set(1.0 / (k - 2 * m))
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, WinsorizedM:m, ReMax, ReMin"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
