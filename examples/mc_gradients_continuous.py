@@ -3,6 +3,7 @@
 
 Compares reparameterization/pathwise (RP) and LR-advantage gradient estimators
 for a Normal location model transformed through a quadratic reward function.
+Supports both 1D and multi-dimensional location parameters.
 """
 
 from __future__ import annotations
@@ -20,20 +21,25 @@ class BufferedNormalSampler:
             raise ValueError("buffer_size must be positive")
         self.device = device
         self.dtype = dtype
-        self._buf = self.torch.empty(0, dtype=self.dtype, device=self.device)
+        self._buf = self.torch.empty((0, 1), dtype=self.dtype, device=self.device)
+        self._pos = 0
+        self._dim = 1
+
+    def _refill(self, dim: int) -> None:
+        self._dim = int(dim)
+        self._buf = self.torch.randn((self.buffer_size, self._dim), dtype=self.dtype, device=self.device)
         self._pos = 0
 
-    def _refill(self) -> None:
-        self._buf = self.torch.randn(self.buffer_size, dtype=self.dtype, device=self.device)
-        self._pos = 0
-
-    def sample(self, n: int):
-        out = self.torch.empty(n, dtype=self.dtype, device=self.device)
+    def sample(self, n: int, dim: int):
+        dim = int(dim)
+        if self._buf.shape[0] == 0 or self._pos >= self._buf.shape[0] or self._dim != dim:
+            self._refill(dim)
+        out = self.torch.empty((n, dim), dtype=self.dtype, device=self.device)
         i = 0
         while i < n:
-            if self._pos >= self._buf.numel():
-                self._refill()
-            take = min(n - i, self._buf.numel() - self._pos)
+            if self._pos >= self._buf.shape[0]:
+                self._refill(dim)
+            take = min(n - i, self._buf.shape[0] - self._pos)
             out[i : i + take] = self._buf[self._pos : self._pos + take]
             self._pos += take
             i += take
@@ -67,8 +73,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="MC gradient check in continuous setting (torch RP vs torch LR-adv).")
     ap.add_argument("--N", type=int, default=64)
     ap.add_argument("--k", type=float, default=6.0)
+    ap.add_argument("--dim", type=int, default=1, help="Dimensionality of location parameter mu.")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--mu", type=float, default=0.5, help="Normal location parameter.")
+    ap.add_argument("--mu", type=float, default=0.5, help="Base Normal location parameter (broadcast to all dims).")
     ap.add_argument("--center", type=float, default=1.0, help="Quadratic reward center c for f(z)=-(z-c)^2.")
     ap.add_argument("--sample-buffer-size", type=int, default=200_000)
     ap.add_argument("--a", type=str, default=None)
@@ -92,6 +99,9 @@ def main() -> None:
     device = torch.device("cpu")
     dtype = torch.float64
 
+    if args.dim < 1:
+        raise SystemExit("--dim must be >= 1")
+
     k_ord = int(torch.floor(torch.tensor(args.k)).item())
     if k_ord < 1:
         raise SystemExit("Need floor(k) >= 1")
@@ -114,43 +124,46 @@ def main() -> None:
     const = 0.5 * torch.log(torch.tensor(2.0 * 3.141592653589793, dtype=dtype, device=device))
 
     for t in t_grid:
-        rp_sum = 0.0
-        lr_sum = 0.0
+        rp_sum = torch.zeros(args.dim, dtype=dtype, device=device)
+        lr_sum = torch.zeros(args.dim, dtype=dtype, device=device)
         for _ in range(t):
-            eps = eps_sampler.sample(args.N)
+            eps = eps_sampler.sample(args.N, args.dim)
 
             # RP estimator via autograd through reparameterized objective.
-            mu_rp = torch.tensor(args.mu, dtype=dtype, device=device, requires_grad=True)
-            z_rp = mu_rp + eps
-            x_rp = -((z_rp - args.center) ** 2)
+            mu_rp = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
+            z_rp = mu_rp[None, :] + eps
+            x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1)
             l_rp = os_l.expected_lstat(x_rp)
             g_rp = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
             # LR estimator via autograd score terms with k multiplier.
-            mu_lr = torch.tensor(args.mu, dtype=dtype, device=device, requires_grad=True)
-            z_lr = mu_lr + eps
-            x_lr = -((z_lr - args.center) ** 2)
+            mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
+            z_lr = mu_lr[None, :] + eps
+            x_lr = -torch.sum((z_lr - float(args.center)) ** 2, dim=1)
             l_adv = os_l.expected_lstat_advantage(x_lr).detach()
 
-            # log N(z|mu,1) = -0.5*(z-mu)^2 - const
-            logp = -0.5 * ((z_lr - mu_lr) ** 2) - const
-            weighted_score = torch.zeros((), dtype=dtype, device=device)
+            # log N(z|mu, I) = -0.5*||z-mu||^2 - d*const
+            logp = -0.5 * torch.sum((z_lr - mu_lr[None, :]) ** 2, dim=1) - (args.dim * const)
+            weighted_score = torch.zeros(args.dim, dtype=dtype, device=device)
             for n in range(args.N):
                 g_n = torch.autograd.grad(logp[n], mu_lr, retain_graph=True, create_graph=False)[0]
                 weighted_score = weighted_score + l_adv[n] * g_n
             g_lr = (float(args.k) * weighted_score) / float(args.N)
 
-            rp_sum += float(g_rp.item())
-            lr_sum += float(g_lr.item())
+            rp_sum += g_rp
+            lr_sum += g_lr
 
-        rp_mean = rp_sum / t
-        lr_mean = lr_sum / t
-        rp_trace.append(rp_mean)
-        lr_trace.append(lr_mean)
+        rp_mean = rp_sum / float(t)
+        lr_mean = lr_sum / float(t)
+        rp_norm = float(torch.linalg.norm(rp_mean).item())
+        lr_norm = float(torch.linalg.norm(lr_mean).item())
+        rp_trace.append(rp_norm)
+        lr_trace.append(lr_norm)
 
-        gap = abs(rp_mean - lr_mean)
+        gap = float(torch.mean(torch.abs(rp_mean - lr_mean)).item())
+        scale = float(torch.mean(torch.abs(rp_mean)).item())
         abs_gap.append(gap)
-        rel_gap.append(gap / (abs(rp_mean) + 1e-12))
+        rel_gap.append(gap / (scale + 1e-12))
 
     abs_gap_plot = _safe_for_logplot(abs_gap)
     rel_gap_plot = _safe_for_logplot(rel_gap)
@@ -180,12 +193,12 @@ def main() -> None:
 
     comp_out = out.with_name(out.stem + "_traces" + out.suffix)
     fig2, ax = plt.subplots(figsize=(7, 4.5))
-    ax.plot(t_grid, rp_trace, marker="o", label="RP mean gradient")
-    ax.plot(t_grid, lr_trace, marker="x", label="LR-adv mean gradient")
+    ax.plot(t_grid, rp_trace, marker="o", label="RP ||mean gradient||")
+    ax.plot(t_grid, lr_trace, marker="x", label="LR-adv ||mean gradient||")
     ax.set_xscale("log")
     ax.set_xlabel("t")
-    ax.set_ylabel("gradient estimate")
-    ax.set_title("RP vs LR gradient estimates")
+    ax.set_ylabel("gradient norm")
+    ax.set_title("RP vs LR gradient norms")
     ax.grid(alpha=0.3)
     ax.legend()
     fig2.tight_layout()

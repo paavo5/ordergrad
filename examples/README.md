@@ -89,9 +89,12 @@ python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,
 Normal-location model with a quadratic reward transform.
 This script also uses the `k` multiplier in the LR estimator (`k * mean(adv * score)`),
 as required for unbiasedness in this setup.
+The dimensionality is configurable via `--dim`: for `dim>1`, the script uses a
+vector location parameter and reports vector-gradient mismatch statistics.
 
 ```bash
 python examples/mc_gradients_continuous.py --N 64 --k 6 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
+python examples/mc_gradients_continuous.py --N 64 --k 6 --dim 4 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
 ```
 
 ---
