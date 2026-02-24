@@ -12,6 +12,7 @@ Gradient estimator uses ordergrad L-advantage with LR score-function scaling.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 
@@ -76,6 +77,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000)
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_snr_multiarm.png")
+    ap.add_argument("--store-data", action="store_true", help="Store experiment data + setup metadata to disk.")
+    ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
+    ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -151,6 +155,44 @@ def main() -> None:
     fig.tight_layout()
     fig.savefig(out, dpi=150)
     print(f"Saved: {out}")
+
+    if args.store_data:
+        import numpy as np
+
+        data_dir = Path(args.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"mc_snr_multiarm__{args.tag}"
+        npz_path = data_dir / f"{stem}.npz"
+        json_path = data_dir / f"{stem}.json"
+
+        np.savez(
+            npz_path,
+            k=np.asarray(ks, dtype=np.float64),
+            variance=np.asarray(var_vals, dtype=np.float64),
+            snr=np.asarray(snr_vals, dtype=np.float64),
+            mean_norm=np.asarray(mean_norm_vals, dtype=np.float64),
+        )
+
+        metadata = {
+            "experiment": "mc_snr_multiarm",
+            "tag": args.tag,
+            "setup": {
+                "N": args.N,
+                "num_arms": args.num_arms,
+                "k_grid": ks,
+                "num_mc": args.num_mc,
+                "a": args.a,
+                "seed": args.seed,
+                "sample_buffer_size": args.sample_buffer_size,
+            },
+            "artifacts": {
+                "plot": str(out),
+                "data_npz": str(npz_path),
+            },
+        }
+        json_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved: {npz_path}")
+        print(f"Saved: {json_path}")
 
     if args.show:
         plt.show()

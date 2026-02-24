@@ -110,9 +110,11 @@ for the multi-arm LR estimator across a list of `k` values.
   - `V[g]`: sum of per-dimension variances,
   - `SNR = ||E[g]||^2 / V[g]`.
 - Supports numeric or preset `--a` definitions (e.g. `TopM:3`).
+- Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
 
 ```bash
 python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3
+python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3 --store-data --tag topm3_baseline
 ```
 
 ## 7) Gradient variance / SNR vs k (continuous)
@@ -123,9 +125,11 @@ python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --nu
 - Computes RP and LR gradient samples for each `k` in `--k-grid`.
 - Plots `V[g]` and `SNR = ||E[g]||^2 / V[g]` for both estimators.
 - Supports multi-dimensional parameterization via `--dim` and numeric/preset `--a`.
+- Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
 
 ```bash
 python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2
+python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2 --store-data --tag topbot2_dim2
 ```
 
 ---
