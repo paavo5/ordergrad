@@ -208,10 +208,10 @@ Each backend exposes `OrderStatTransform` with:
     - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
     - `"WinsorizedM:m"`: winsorized mean (replace bottom/top `m` values by the next interior values)
     - `"MidrangeM:m"` / `"TopBot:m"`: average of bottom-`m` mean and top-`m` mean
-    - `"ReMax"`: top-1 only
-    - `"ReMin"`: bottom-1 only
+    - `"ReMax"`: top-1 only (`j=1`)
+    - `"ReMin"`: bottom-1 only (`j=floor(k)`)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
-    - `"HarrellDavis:q"`: Harrell–Davis quantile estimator at quantile `q in [0,1]`
+    - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at quantile `q in [0,1]`
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
     - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
 - known-`(r,p)` order-stat methods:

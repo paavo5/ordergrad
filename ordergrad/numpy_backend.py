@@ -415,9 +415,9 @@ class OrderStatTransform:
                 raise ValueError(f"{name} does not take an m value")
             out = np.zeros((k,), dtype=dtype)
             if key == "remax":
-                out[k - 1] = 1.0
-            elif key == "remin":
                 out[0] = 1.0
+            elif key == "remin":
+                out[k - 1] = 1.0
             elif key == "median":
                 if k % 2 == 1:
                     out[k // 2] = 1.0
@@ -429,7 +429,7 @@ class OrderStatTransform:
                 out = (2.0 * (2.0 * j - (k + 1.0))) / (k * (k - 1.0))
             return out
 
-        if key == "harrelldavis":
+        if key in {"harrelldavis", "harreldavis"}:
             if not m_txt.strip():
                 raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
             q = float(m_txt)

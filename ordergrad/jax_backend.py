@@ -331,9 +331,9 @@ class OrderStatTransform:
                 raise ValueError(f"{name} does not take an m value")
             out = jnp.zeros((k,), dtype=dtype)
             if key == "remax":
-                return out.at[k - 1].set(1.0)
-            if key == "remin":
                 return out.at[0].set(1.0)
+            if key == "remin":
+                return out.at[k - 1].set(1.0)
             if key == "median":
                 if k % 2 == 1:
                     return out.at[k // 2].set(1.0)
@@ -341,7 +341,7 @@ class OrderStatTransform:
             j = jnp.arange(1, k + 1, dtype=dtype)
             return (2.0 * (2.0 * j - (k + 1.0))) / (k * (k - 1.0))
 
-        if key == "harrelldavis":
+        if key in {"harrelldavis", "harreldavis"}:
             if not m_txt.strip():
                 raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
             q = float(m_txt)

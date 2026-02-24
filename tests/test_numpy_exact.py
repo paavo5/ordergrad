@@ -140,8 +140,8 @@ def test_lstat_presets_match_manual_vectors():
         "WindosrizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
         "MidrangeM:2": np.array([0.25, 0.25, 0, 0, 0.25, 0.25], dtype=np.float64),
         "TopBot:2": np.array([0.25, 0.25, 0, 0, 0.25, 0.25], dtype=np.float64),
-        "ReMax": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
-        "ReMin": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
+        "ReMax": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
+        "ReMin": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "Median": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
         "GiniMeanDifference": np.array([-1 / 3, -1 / 5, -1 / 15, 1 / 15, 1 / 5, 1 / 3], dtype=np.float64),
         "LMoment:1": np.ones((k,), dtype=np.float64) / k,
@@ -168,6 +168,19 @@ def test_winsorized_differs_from_trimmed_and_matches_definition():
     assert wins != trim
     np.testing.assert_allclose(wins, expected_wins, atol=1e-12, rtol=1e-12)
 
+
+
+
+def test_harrel_davis_alias_matches_harrell_davis():
+    k = 9
+    x = np.linspace(-1.0, 1.0, k, dtype=np.float64)
+    os = OrderStatTransform.precompute(k, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=False)
+    np.testing.assert_allclose(
+        os.expected_lstat(x, "HarrelDavis:0.25"),
+        os.expected_lstat(x, "HarrellDavis:0.25"),
+        atol=1e-12,
+        rtol=1e-12,
+    )
 
 def test_harrell_davis_weights_form_valid_quantile_l_estimator():
     k = 9
