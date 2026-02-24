@@ -421,9 +421,9 @@ class OrderStatTransform:
 
         out = torch.zeros((k,), dtype=dtype, device=device)
         if key == "topm":
-            out[k - m :] = 1.0 / m
-        elif key == "botm":
             out[:m] = 1.0 / m
+        elif key == "botm":
+            out[k - m :] = 1.0 / m
         elif key in {"midrangem", "topbot"}:
             out[:m] = 0.5 / m
             out[k - m :] += 0.5 / m

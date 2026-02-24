@@ -133,8 +133,8 @@ def test_lstat_presets_match_manual_vectors():
     os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
 
     presets = {
-        "TopM:2": np.array([0, 0, 0, 0, 0.5, 0.5], dtype=np.float64),
-        "BotM:3": np.array([1 / 3, 1 / 3, 1 / 3, 0, 0, 0], dtype=np.float64),
+        "TopM:2": np.array([0.5, 0.5, 0, 0, 0, 0], dtype=np.float64),
+        "BotM:3": np.array([0, 0, 0, 1 / 3, 1 / 3, 1 / 3], dtype=np.float64),
         "TrimM:1": np.array([0, 0.25, 0.25, 0.25, 0.25, 0], dtype=np.float64),
         "WinsorizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),
         "WindosrizedM:1": np.array([0, 1/3, 1/6, 1/6, 1/3, 0], dtype=np.float64),

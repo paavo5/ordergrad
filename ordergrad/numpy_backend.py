@@ -449,9 +449,9 @@ class OrderStatTransform:
 
         out = np.zeros((k,), dtype=dtype)
         if key == "topm":
-            out[k - m :] = 1.0 / m
-        elif key == "botm":
             out[:m] = 1.0 / m
+        elif key == "botm":
+            out[k - m :] = 1.0 / m
         elif key in {"midrangem", "topbot"}:
             out[:m] = 0.5 / m
             out[k - m :] += 0.5 / m

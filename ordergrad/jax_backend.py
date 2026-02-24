@@ -379,9 +379,9 @@ class OrderStatTransform:
 
         out = jnp.zeros((k,), dtype=dtype)
         if key == "topm":
-            out = out.at[k - m :].set(1.0 / m)
-        elif key == "botm":
             out = out.at[:m].set(1.0 / m)
+        elif key == "botm":
+            out = out.at[k - m :].set(1.0 / m)
         elif key in {"midrangem", "topbot"}:
             out = out.at[:m].set(0.5 / m)
             out = out.at[k - m :].add(0.5 / m)

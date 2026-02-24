@@ -203,8 +203,8 @@ Each backend exposes `OrderStatTransform` with:
   - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
   - `a` can be either a numeric vector of shape `(floor(k),)` or a preset string:
-    - `"TopM:m"`: equal weight on top `m` ranks
-    - `"BotM:m"`: equal weight on bottom `m` ranks
+    - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is top rank)
+    - `"BotM:m"`: equal weight on bottom `m` ranks (largest `j` ranks)
     - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
     - `"WinsorizedM:m"`: winsorized mean (replace bottom/top `m` values by the next interior values)
     - `"MidrangeM:m"` / `"TopBot:m"`: average of bottom-`m` mean and top-`m` mean
