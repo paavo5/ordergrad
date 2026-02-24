@@ -29,6 +29,62 @@ def _log_choose(n: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
     return out
 
 
+def _betainc_regularized(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a,b) via continued fractions."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+
+    def _betacf(aa: float, bb: float, xx: float) -> float:
+        qab = aa + bb
+        qap = aa + 1.0
+        qam = aa - 1.0
+        c = 1.0
+        d = 1.0 - qab * xx / qap
+        if abs(d) < 1e-30:
+            d = 1e-30
+        d = 1.0 / d
+        h = d
+        for m in range(1, 201):
+            m2 = 2 * m
+            num = m * (bb - m) * xx / ((qam + m2) * (aa + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            h *= d * c
+
+            num = -(aa + m) * (qab + m) * xx / ((aa + m2) * (qap + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            delta = d * c
+            h *= delta
+            if abs(delta - 1.0) < 3e-14:
+                break
+        return h
+
+    ln_bt = (
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log1p(-x)
+    )
+    bt = math.exp(ln_bt)
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
 def _build_weight_matrix(
     N_rows: int,
     k: int,
@@ -389,11 +445,16 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
-            a = torch.as_tensor((k + 1) * q, dtype=dtype, device=device)
-            b = torch.as_tensor((k + 1) * (1.0 - q), dtype=dtype, device=device)
-            u_hi = torch.arange(1, k + 1, dtype=dtype, device=device) / float(k)
-            u_lo = torch.arange(0, k, dtype=dtype, device=device) / float(k)
-            return torch.special.betainc(a, b, u_hi) - torch.special.betainc(a, b, u_lo)
+            aa = (k + 1) * q
+            bb = (k + 1) * (1.0 - q)
+            u_hi = torch.arange(1, k + 1, dtype=torch.float64, device=device) / float(k)
+            u_lo = torch.arange(0, k, dtype=torch.float64, device=device) / float(k)
+            w = [
+                _betainc_regularized(aa, bb, float(hi.item()))
+                - _betainc_regularized(aa, bb, float(lo.item()))
+                for lo, hi in zip(u_lo, u_hi)
+            ]
+            return torch.as_tensor(w, dtype=dtype, device=device)
 
         if key == "lmoment":
             if not m_txt.strip():

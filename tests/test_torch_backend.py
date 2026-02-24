@@ -290,4 +290,20 @@ def test_torch_real_k_fractional_is_supported():
     assert np.isfinite(os_frac.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy()).all()
     assert np.isfinite(os_frac.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy()).all()
 
+
+@pytest.mark.torch
+def test_torch_harrell_davis_matches_numpy_reference_weights_and_alias():
+    k = 9
+    q = 0.25
+
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    w_np = os_np._preset_lstat_weights(k, f"HarrellDavis:{q}", dtype=np.float64)
+    w_th = os_th._preset_lstat_weights(k, f"HarrellDavis:{q}", dtype=torch.float64, device=torch.device("cpu"))
+    w_alias = os_th._preset_lstat_weights(k, f"HarrelDavis:{q}", dtype=torch.float64, device=torch.device("cpu"))
+
+    np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(w_alias.detach().cpu().numpy(), w_th.detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
     
