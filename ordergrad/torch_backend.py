@@ -456,6 +456,17 @@ class OrderStatTransform:
             ]
             return torch.as_tensor(w, dtype=dtype, device=device)
 
+        if key == "quantile":
+            if not m_txt.strip():
+                raise ValueError("Preset 'Quantile' requires ':q' (e.g. Quantile:0.25)")
+            q = float(m_txt)
+            if not (0.0 <= q <= 1.0):
+                raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
+            idx = int(math.floor(q * (k - 1) + 0.5))
+            out = torch.zeros((k,), dtype=dtype, device=device)
+            out[idx] = 1.0
+            return out
+
         if key == "lmoment":
             if not m_txt.strip():
                 raise ValueError("Preset 'LMoment' requires ':r' (e.g. LMoment:2)")
@@ -500,7 +511,7 @@ class OrderStatTransform:
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Quantile:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
