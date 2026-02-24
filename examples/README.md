@@ -100,6 +100,34 @@ python examples/mc_gradients_continuous.py --N 64 --k 6 --mu 0.5 --center 1.0 --
 python examples/mc_gradients_continuous.py --N 64 --k 6 --dim 4 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
 ```
 
+## 6) Gradient variance / SNR vs k (multi-arm)
+
+`mc_snr_multiarm.py` estimates gradient variance and signal-to-noise ratio
+for the multi-arm LR estimator across a list of `k` values.
+
+- Uses Monte Carlo repeated gradient estimates (`--num-mc`) for each `k` in `--k-grid`.
+- Reports and plots:
+  - `V[g]`: sum of per-dimension variances,
+  - `SNR = ||E[g]||^2 / V[g]`.
+- Supports numeric or preset `--a` definitions (e.g. `TopM:3`).
+
+```bash
+python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3
+```
+
+## 7) Gradient variance / SNR vs k (continuous)
+
+`mc_snr_continuous.py` compares RP and LR gradient estimator variance/SNR as
+`k` changes in the continuous Normal-location setting.
+
+- Computes RP and LR gradient samples for each `k` in `--k-grid`.
+- Plots `V[g]` and `SNR = ||E[g]||^2 / V[g]` for both estimators.
+- Supports multi-dimensional parameterization via `--dim` and numeric/preset `--a`.
+
+```bash
+python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2
+```
+
 ---
 
 ## Notes
