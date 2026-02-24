@@ -250,3 +250,15 @@ def test_jax_quantile_preset_matches_numpy_reference():
     w_np = os_np._preset_lstat_weights(k, "Quantile:0.25", dtype=np.float64)
     w_jx = os_jx._preset_lstat_weights(k, "Quantile:0.25", dtype=jnp.float64)
     np.testing.assert_allclose(np.asarray(w_jx), w_np, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.jax
+def test_jax_tailmean_presets_match_numpy_reference():
+    k = 6
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_jx = JX.precompute(k, k, dtype=jnp.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    for spec in ["UpperTailMean:0.25", "LowerTailMean:0.25"]:
+        w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
+        w_jx = os_jx._preset_lstat_weights(k, spec, dtype=jnp.float64)
+        np.testing.assert_allclose(np.asarray(w_jx), w_np, rtol=1e-12, atol=1e-12)

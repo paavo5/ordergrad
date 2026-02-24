@@ -146,6 +146,8 @@ def test_lstat_presets_match_manual_vectors():
         "Quantile:0": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
         "Quantile:1": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "Quantile:0.25": np.array([0, 1, 0, 0, 0, 0], dtype=np.float64),
+        "UpperTailMean:0.25": np.array([0.5, 0.5, 0, 0, 0, 0], dtype=np.float64),
+        "LowerTailMean:0.25": np.array([0, 0, 0, 0, 0.5, 0.5], dtype=np.float64),
         "GiniMeanDifference": np.array([-1 / 3, -1 / 5, -1 / 15, 1 / 15, 1 / 5, 1 / 3], dtype=np.float64),
         "LMoment:1": np.ones((k,), dtype=np.float64) / k,
     }
@@ -213,6 +215,10 @@ def test_lstat_preset_validation_errors():
         os.expected_lstat(np.arange(10, dtype=np.float64), "HarrellDavis")
     with pytest.raises(ValueError, match="requires ':q'"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "Quantile")
+    with pytest.raises(ValueError, match="requires ':q'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "UpperTailMean")
+    with pytest.raises(ValueError, match="requires ':q'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "LowerTailMean")
     with pytest.raises(ValueError, match="requires ':r'"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "LMoment")
 
