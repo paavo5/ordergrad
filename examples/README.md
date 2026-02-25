@@ -157,7 +157,7 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 - Choose methods with `--a` as a comma-separated list restricted to quantile-style methods (`Quantile*` variants and `HarrellDavis`).
 - Supports separate k values per method using `--k-list` (one value broadcasts).
 - Plots absolute and relative error vs number of repetitions `t`.
-- Also prints per-`t` estimator means for Quantile and HarrellDavis alongside the exact target, plus RMSE-based error estimates that include variance (single-estimate RMSE and RMSE for the mean of `t` runs).
+- Prints a compact summary table only for the largest `t` in `--t-grid`, with one row per method and columns for mean/error/RMSE metrics.
 
 ```bash
 python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --a Quantile,HarrellDavis --k-list 6

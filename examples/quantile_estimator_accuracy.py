@@ -136,14 +136,12 @@ def main() -> None:
         f"methods={[m for m, _, _, _ in estimators]}, k_list={[k for _, k, _, _ in estimators]}"
     )
 
-    header = ["t"]
-    for method, _, _, _ in estimators:
-        header.extend([f"{method}Mean", f"AbsErr[{method}]", f"RMSE_single[{method}]", f"RMSE_mean_t[{method}]"])
-    header.append("Exact")
-    print("\t".join(header))
+    print("method\tk\tt_max\tmean\tabs_err\trel_err\trmse_single\trmse_mean_t\texact")
 
     err_abs = {method: [] for method, _, _, _ in estimators}
     err_rel = {method: [] for method, _, _, _ in estimators}
+    t_max = max(t_grid)
+    final_stats = {}
 
     for t in t_grid:
         vals_by_method = {method: np.empty(t, dtype=np.float64) for method, _, _, _ in estimators}
@@ -153,21 +151,34 @@ def main() -> None:
             for method, _, spec, os in estimators:
                 vals_by_method[method][i] = os.expected_lstat(x, spec)
 
-        row = [str(t)]
         denom = abs(exact) + 1e-12
-        for method, _, _, _ in estimators:
+        for method, k_val, _, _ in estimators:
             vals = vals_by_method[method]
             mean_v = float(np.mean(vals))
             abs_e = abs(mean_v - exact)
+            rel_e = abs_e / denom
             var_v = float(np.var(vals, ddof=1)) if t > 1 else 0.0
             rmse_single = float(np.sqrt(np.mean((vals - exact) ** 2)))
             rmse_mean_t = float(np.sqrt(var_v / float(t) + (mean_v - exact) ** 2))
             err_abs[method].append(abs_e)
-            err_rel[method].append(abs_e / denom)
-            row.extend([f"{mean_v:.8g}", f"{abs_e:.3e}", f"{rmse_single:.3e}", f"{rmse_mean_t:.3e}"])
+            err_rel[method].append(rel_e)
+            if t == t_max:
+                final_stats[method] = {
+                    "k": float(k_val),
+                    "t_max": int(t),
+                    "mean": mean_v,
+                    "abs_err": abs_e,
+                    "rel_err": rel_e,
+                    "rmse_single": rmse_single,
+                    "rmse_mean_t": rmse_mean_t,
+                }
 
-        row.append(f"{exact:.8g}")
-        print("\t".join(row))
+    for method, _, _, _ in estimators:
+        st = final_stats[method]
+        print(
+            f"{method}\t{st['k']:.8g}\t{st['t_max']}\t{st['mean']:.8g}\t{st['abs_err']:.3e}\t"
+            f"{st['rel_err']:.3e}\t{st['rmse_single']:.3e}\t{st['rmse_mean_t']:.3e}\t{exact:.8g}"
+        )
 
     fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.2))
     markers = ["o", "s", "^", "d", "x", "+", "v", "<", ">"]
