@@ -98,6 +98,15 @@ def _make_rewards(m: int, mode: str, rng: np.random.Generator) -> np.ndarray:
         return np.power(2.0, np.arange(m, dtype=np.float64), dtype=np.float64)
     raise SystemExit("--reward-mode must be one of: gaussian, linear, exp")
 
+
+def _make_probs(m: int, mode: str, rng: np.random.Generator) -> np.ndarray:
+    mode = str(mode).strip().lower()
+    if mode == "random":
+        return rng.dirichlet(np.ones(m, dtype=np.float64)).astype(np.float64)
+    if mode in {"uniform", "constant", "equal"}:
+        return np.full(m, 1.0 / float(m), dtype=np.float64)
+    raise SystemExit("--prob-mode must be one of: random, uniform")
+
 def _single_batch_estimates(
     os,
     os_l,
@@ -173,6 +182,7 @@ def main() -> None:
     ap.add_argument("--k", type=float, default=6.0, help="Estimator k parameter (can be real).")
     ap.add_argument("--num-arms", type=int, default=6, help="Number of arms in the known-(r,p) model.")
     ap.add_argument("--reward-mode", type=str, default="gaussian", choices=["gaussian", "linear", "exp"], help="How arm rewards are generated: gaussian (fixed random), linear (arange), exp (2**m).")
+    ap.add_argument("--prob-mode", type=str, default="random", choices=["random", "uniform"], help="How action sampling probabilities are set: random Dirichlet draw or uniform over actions.")
     ap.add_argument("--a", type=str, default=None, help="L-stat weights: single value (broadcast), comma-separated floor(k)-vector in top-rank order (j=1 highest), or preset string (e.g. TopM:3).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000, help="Number of arm indices to pre-sample per buffer refill.")
@@ -200,7 +210,7 @@ def main() -> None:
         raise SystemExit("--num-arms must be >= 2")
     m = args.num_arms
     r = _make_rewards(m, args.reward_mode, rng)
-    p = rng.dirichlet(np.ones(m, dtype=np.float64)).astype(np.float64)
+    p = _make_probs(m, args.prob_mode, rng)
 
     idx_sampler = BufferedIndexSampler(rng, m, p, buffer_size=args.sample_buffer_size)
 

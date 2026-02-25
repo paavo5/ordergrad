@@ -67,6 +67,15 @@ def _make_rewards(m: int, mode: str, *, device, dtype) -> torch.Tensor:
         return torch.pow(torch.tensor(2.0, dtype=dtype, device=device), torch.arange(m, dtype=dtype, device=device))
     raise SystemExit("--reward-mode must be one of: gaussian, linear, exp")
 
+
+def _init_theta(m: int, mode: str, *, device, dtype) -> torch.Tensor:
+    mode = str(mode).strip().lower()
+    if mode == "random":
+        return torch.randn(m, dtype=dtype, device=device, requires_grad=True)
+    if mode in {"uniform", "constant", "equal"}:
+        return torch.zeros(m, dtype=dtype, device=device, requires_grad=True)
+    raise SystemExit("--prob-mode must be one of: random, uniform")
+
 def _parse_a(spec: str | None, k_ord: int, *, device, dtype):
     if spec is None:
         return torch.linspace(0.3, 1.0, steps=k_ord, dtype=dtype, device=device)
@@ -89,6 +98,7 @@ def main() -> None:
     ap.add_argument("--k", type=float, default=6.0)
     ap.add_argument("--num-arms", type=int, default=6)
     ap.add_argument("--reward-mode", type=str, default="gaussian", choices=["gaussian", "linear", "exp"], help="How arm rewards are generated: gaussian (fixed random), linear (arange), exp (2**m).")
+    ap.add_argument("--prob-mode", type=str, default="random", choices=["random", "uniform"], help="How action sampling probabilities are initialized: random softmax logits or uniform over actions.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000)
     ap.add_argument("--a", type=str, default=None)
@@ -120,7 +130,7 @@ def main() -> None:
         raise SystemExit("Need floor(k) >= 1")
 
     r = _make_rewards(m, args.reward_mode, device=device, dtype=dtype)
-    theta = torch.randn(m, dtype=dtype, device=device, requires_grad=True)
+    theta = _init_theta(m, args.prob_mode, device=device, dtype=dtype)
     p = torch.softmax(theta, dim=0)
     a = _parse_a(args.a, k_ord, device=device, dtype=dtype)
 

@@ -56,6 +56,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 - `--t-grid` is the number of independent repeated estimator runs to average.
 - `--a` sets L-stat weights (single value broadcast, comma list of length `floor(k)` in top-rank order (`j=1` highest), or preset string such as `TopM:3`).
 - `--reward-mode` controls arm reward generation in multi-arm experiments: `gaussian`, `linear`, or `exp`.
+- `--prob-mode` controls action sampling probabilities: `random` (default) or `uniform`.
 - Internally the script preweights using `with_lstat_weights(a)` so `L-advantage` uses the precomputed fast path even for default `a`.
 - Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
@@ -70,6 +71,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 ```bash
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --reward-mode exp
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --prob-mode uniform
 python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
 python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a TopM:3
@@ -88,6 +90,7 @@ which is needed for unbiasedness under this formulation.
 ```bash
 python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
 python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --reward-mode linear
+python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --prob-mode uniform
 ```
 
 ## 5) Monte Carlo gradient check (continuous)
