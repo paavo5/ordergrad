@@ -167,8 +167,8 @@ def main() -> None:
         default="1,2,5,10,20,50,100,200,500",
         help="Comma-separated repetition counts t (number of independent estimator batches to average).",
     )
-    ap.add_argument("--arm-rank", type=int, default=1, help="1-based reward rank among arms used to choose the conditioned arm in arm-detail plots (1=highest reward arm).")
-    ap.add_argument("--plot-arm-details", action="store_true", help="Also save exact-vs-estimate detail plots at max(t-grid): inclusion/advantage vs estimator rank for the selected arm, and L-advantage by arm.")
+    ap.add_argument("--arm-rank", type=int, default=1, help="1-based estimator rank j used in arm-detail plots.")
+    ap.add_argument("--plot-arm-details", action="store_true", help="Also save arm-wise exact vs estimate plots at max(t-grid).")
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_error_curve.png")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
@@ -184,7 +184,7 @@ def main() -> None:
     if args.num_arms < 2:
         raise SystemExit("--num-arms must be >= 2")
     m = args.num_arms
-    r = rng.normal(loc=0.0, scale=1.0, size=m).astype(np.float64)
+    r = np.sort(rng.normal(loc=0.0, scale=1.0, size=m).astype(np.float64))
     p = rng.dirichlet(np.ones(m, dtype=np.float64)).astype(np.float64)
 
     idx_sampler = BufferedIndexSampler(rng, m, p, buffer_size=args.sample_buffer_size)
@@ -192,12 +192,8 @@ def main() -> None:
     k_ord = int(np.floor(args.k))
     if k_ord < 1:
         raise SystemExit("Need floor(k) >= 1")
-    if not (1 <= args.arm_rank <= m):
-        raise SystemExit(f"--arm-rank must be in [1, {m}] (rank among arms by reward)")
-
-    # rank 1 corresponds to highest reward arm, rank m to lowest reward arm
-    reward_order_desc = np.argsort(-r, kind="mergesort")
-    conditioned_arm_idx = int(reward_order_desc[args.arm_rank - 1])
+    if not (1 <= args.arm_rank <= k_ord):
+        raise SystemExit(f"--arm-rank must be in [1, {k_ord}]")
     a = _parse_a(args.a, k_ord)
     a_backend = to_backend(a)
 
@@ -336,27 +332,26 @@ def main() -> None:
     print(f"Saved error curves: {out}")
 
     if args.plot_arm_details and last_inc_est_by_arm is not None and last_adv_est_by_arm is not None and last_ladv_est_by_arm is not None:
-        ranks = np.arange(1, k_ord + 1)
+        rank_idx = args.arm_rank - 1
         arms = np.arange(m)
         fig2, axes2 = plt.subplots(1, 3, figsize=(15, 4.8))
 
-        axes2[0].plot(ranks, inc_exact_by_arm[conditioned_arm_idx, :], marker="o", label="exact")
-        axes2[0].plot(ranks, last_inc_est_by_arm[conditioned_arm_idx, :], marker="x", label=f"estimate (t={t_grid[-1]})")
-        axes2[0].set_title(f"Inclusion vs rank j | arm={conditioned_arm_idx} (reward-rank={args.arm_rank})")
-        axes2[0].set_xlabel("order-stat rank j")
+        axes2[0].plot(arms, inc_exact_by_arm[:, rank_idx], marker="o", label="exact")
+        axes2[0].plot(arms, last_inc_est_by_arm[:, rank_idx], marker="x", label=f"estimate (t={t_grid[-1]})")
+        axes2[0].set_title(f"Inclusion by arm (rank j={args.arm_rank})")
+        axes2[0].set_xlabel("arm")
         axes2[0].grid(alpha=0.3)
         axes2[0].legend(fontsize=8)
 
-        axes2[1].plot(ranks, adv_exact_by_arm[conditioned_arm_idx, :], marker="o", label="exact")
-        axes2[1].plot(ranks, last_adv_est_by_arm[conditioned_arm_idx, :], marker="x", label=f"estimate (t={t_grid[-1]})")
-        axes2[1].set_title(f"Advantage vs rank j | arm={conditioned_arm_idx} (reward-rank={args.arm_rank})")
-        axes2[1].set_xlabel("order-stat rank j")
+        axes2[1].plot(arms, adv_exact_by_arm[:, rank_idx], marker="o", label="exact")
+        axes2[1].plot(arms, last_adv_est_by_arm[:, rank_idx], marker="x", label=f"estimate (t={t_grid[-1]})")
+        axes2[1].set_title(f"Advantage by arm (rank j={args.arm_rank})")
+        axes2[1].set_xlabel("arm")
         axes2[1].grid(alpha=0.3)
         axes2[1].legend(fontsize=8)
 
         axes2[2].plot(arms, l_adv_exact_by_arm, marker="o", label="exact")
         axes2[2].plot(arms, last_ladv_est_by_arm, marker="x", label=f"estimate (t={t_grid[-1]})")
-        axes2[2].axvline(conditioned_arm_idx, color="k", linestyle=":", alpha=0.7, label=f"conditioned arm={conditioned_arm_idx}")
         axes2[2].set_title("L-advantage by arm")
         axes2[2].set_xlabel("arm")
         axes2[2].grid(alpha=0.3)
