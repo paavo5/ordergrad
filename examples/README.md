@@ -119,6 +119,7 @@ for the multi-arm LR estimator across a list of `k` values.
   - `SNR = ||E[g]||^2 / V[g]`.
 - Supports numeric or preset `--a` definitions (e.g. `TopM:3`).
 - Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
+- `--no-plot` skips per-run figure generation (useful for sweeps that will be aggregated later).
 
 ```bash
 python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3
@@ -134,6 +135,7 @@ python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --nu
 - Plots `V[g]` and `SNR = ||E[g]||^2 / V[g]` for both estimators.
 - Supports multi-dimensional parameterization via `--dim` and numeric/preset `--a`.
 - Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
+- `--no-plot` skips per-run figure generation (useful for sweeps that will be aggregated later).
 
 ```bash
 python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2
@@ -206,4 +208,13 @@ dimensionality.
 
 ```bash
 python examples/plot_dimensionality_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_cont_fixN_varydim_combined.png
+```
+
+
+## 12) LaTeX report generator
+
+`write_experiment_report.py` creates a `report.tex` file that imports generated figures and attaches verbose captions (including key settings such as reward mode/objective and selected `a` presets where applicable).
+
+```bash
+python examples/write_experiment_report.py --art-dir examples/artifacts/<timestamp> --output examples/artifacts/<timestamp>/report.tex
 ```

@@ -25,7 +25,7 @@ for ARMS in 4 8 16; do
   PYTHONPATH=. python3 examples/mc_snr_multiarm.py --N 64 --num-arms "$ARMS" --k-grid 4 --num-mc 1000 --reward-mode linear --a ReMax --store-data --tag "snr_multiarm_fixN_varyarms_${ARMS}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_multiarm_fixN_varyarms_${ARMS}.png" || true
 done
 for DIM in 1 2 4 8; do
-  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim "$DIM" --k-grid 4 --num-mc 1000 --objective quad_sin --sin-freq 6.0 --a ReMax --store-data --tag "snr_cont_fixN_varydim_${DIM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varydim_${DIM}.png" || true
+  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim "$DIM" --k-grid 4 --num-mc 1000 --objective quad_sin --sin-freq 6.0 --a ReMax --store-data --tag "snr_cont_fixN_varydim_${DIM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varydim_${DIM}.png" --no-plot || true
 done
 
 # Unbiasedness checks (gradient error down)
@@ -46,5 +46,8 @@ PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist gaussian --q
 
 # Combined dimensionality dependence plot (single figure, x-axis = dimension)
 PYTHONPATH=. python3 examples/plot_dimensionality_snr.py --data-dir "$DATA_DIR" --tag-prefix "mc_snr_continuous__snr_cont_fixN_varydim_" --output "$ART_DIR/snr_cont_fixN_varydim_combined.png" || true
+
+# Auto-generate LaTeX report with verbose captions and figure settings
+PYTHONPATH=. python3 examples/write_experiment_report.py --art-dir "$ART_DIR" --output "$ART_DIR/report.tex" || true
 
 echo "Done. data_dir=$DATA_DIR artifacts_dir=$ART_DIR"
