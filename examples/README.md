@@ -62,13 +62,13 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
   - advantage,
   - L-advantage.
 - Optional `--plot-arm-details` saves an extra figure comparing exact vs estimated per-arm
-  inclusion/advantage (for rank selected by `--arm-rank`) and L-advantage at `t=max(t-grid)`.
+  inclusion/advantage over estimator rank `j` for the arm selected by `--arm-rank` (reward-rank among arms), and L-advantage by arm at `t=max(t-grid)`.
 - Uses a buffered sampler (`--sample-buffer-size`) that pre-draws many arm indices at once,
   then serves per-batch requests from that buffer before refilling.
 
 ```bash
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
-python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
+python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1  # highest-reward arm
 python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a TopM:3
 python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a 0.2,0.1,0.3,0.15,0.1,0.15
