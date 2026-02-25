@@ -125,7 +125,7 @@ l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 
 # Preset shorthands are also supported for a:
 #   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m", "TopBot:m",
-#   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "TopQuantile:q", "UpperTailMean:q", "LowerTailMean:q", "HarrellDavis:q",
+#   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "QuantileWeibull:q", "QuantileHazen:q", "QuantileBlom:q", "TopQuantile:q", "TopQuantileWeibull:q", "TopQuantileHazen:q", "TopQuantileBlom:q", "UpperTailMean:q", "LowerTailMean:q", "HarrellDavis:q",
 #   "GiniMeanDifference" (or "GMD"), "LMoment:r"
 l_top2 = os.expected_lstat(x, "TopM:2")
 ```
@@ -212,11 +212,13 @@ Each backend exposes `OrderStatTransform` with:
     - `"ReMin"`: bottom-1 only (`j=floor(k)`, smallest value)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
     - `"Rank:r"`: place all mass on explicit 1-based rank `r`
-    - `"Quantile:q"`: interpolate between adjacent ranks based on standard quantile `q` (fraction below threshold) using edge-based positions `i/(floor(k)+1)` (`q=0 -> bottom`, `q=1 -> top`).
+    - `"Quantile:q"`: default quantile preset (Hazen plotting position, equivalent to `QuantileHazen:q`) using standard quantile `q` (fraction below threshold).
     - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at standard quantile `q in [0,1]`
-    - `"TopQuantile:q"`: top-tail quantile alias (equivalent to `Quantile:(1-q)`)
+    - `"QuantileWeibull:q"` / `"QuantileHazen:q"` / `"QuantileBlom:q"`: Weibull (`a=0`), Hazen (`a=0.5`), and Blom (`a=3/8`) probability-plot quantile interpolation variants.
+    - `"TopQuantile:q"`: top-tail Hazen quantile alias (equivalent to `TopQuantileHazen:q`).
+    - `"TopQuantileWeibull:q"` / `"TopQuantileHazen:q"` / `"TopQuantileBlom:q"`: top-tail versions of the three quantile variants (equivalent to using `1-q`).
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
     - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
 - known-`(r,p)` order-stat methods:

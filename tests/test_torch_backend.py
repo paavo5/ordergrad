@@ -315,9 +315,10 @@ def test_torch_quantile_preset_matches_numpy_reference():
     os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
     os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
 
-    w_np = os_np._preset_lstat_weights(k, "Quantile:0.1", dtype=np.float64)
-    w_th = os_th._preset_lstat_weights(k, "Quantile:0.1", dtype=torch.float64, device=torch.device("cpu"))
-    np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
+    for spec in ["Quantile:0.1", "QuantileWeibull:0.1", "QuantileHazen:0.1", "QuantileBlom:0.1", "TopQuantileBlom:0.1"]:
+        w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
+        w_th = os_th._preset_lstat_weights(k, spec, dtype=torch.float64, device=torch.device("cpu"))
+        np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.torch

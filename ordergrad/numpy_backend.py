@@ -435,20 +435,37 @@ class OrderStatTransform:
             q = float(m_txt)
             return _harrell_davis_weights(k, q, dtype=dtype)
 
-        if key in {"quantile", "topquantile"}:
+        if key in {
+            "quantile", "topquantile",
+            "quantileweibull", "quantilehazen", "quantileblom",
+            "topquantileweibull", "topquantilehazen", "topquantileblom",
+        }:
             if not m_txt.strip():
                 raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"{name}:q requires 0 <= q <= 1 (got q={q})")
-            # Quantile:q uses standard CDF convention (q mass below threshold).
-            # TopQuantile:q uses top-tail convention (q mass above threshold).
-            q_eff = q if key == "quantile" else (1.0 - q)
-            # Use edge-based plotting positions with k+1 bins:
-            # order-stat i (ascending, 1..k) sits at q_i = i/(k+1).
-            # Interpolate linearly between neighboring edges.
+
+            is_top = key.startswith("topquantile")
+            variant = key[len("topquantile"):] if is_top else key[len("quantile"):]
+            # Default Quantile/TopQuantile to Hazen.
+            # p_r(a) = (r-a)/(k+1-2a), with common choices:
+            # Weibull(a=0), Hazen(a=0.5), Blom(a=3/8).
+            if variant == "":
+                a_pp = 0.5
+            elif variant == "weibull":
+                a_pp = 0.0
+            elif variant == "hazen":
+                a_pp = 0.5
+            elif variant == "blom":
+                a_pp = 3.0 / 8.0
+            else:
+                raise ValueError(f"Unknown quantile preset variant in '{name}'")
+
+            q_eff = (1.0 - q) if is_top else q
             out = np.zeros((k,), dtype=dtype)
-            pos = q_eff * (k + 1)
+            denom = (k + 1.0 - 2.0 * a_pp)
+            pos = q_eff * denom + a_pp
             if pos <= 1.0:
                 out[0] = 1.0
             elif pos >= float(k):
@@ -516,7 +533,7 @@ class OrderStatTransform:
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, TopQuantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q (Hazen default), QuantileWeibull:q, QuantileHazen:q, QuantileBlom:q, TopQuantile:q (Hazen default), TopQuantileWeibull:q, TopQuantileHazen:q, TopQuantileBlom:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
