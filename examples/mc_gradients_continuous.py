@@ -67,11 +67,11 @@ def _parse_a(spec: str | None, k_ord: int, torch_mod: Any, *, device, dtype):
 
 
 
-def _reward_from_z(z, *, center: float, objective: str, sin_freq: float):
-    quad = -torch.sum((z - float(center)) ** 2, dim=1)
+def _reward_from_z(torch_mod, z, *, center: float, objective: str, sin_freq: float):
+    quad = -torch_mod.sum((z - float(center)) ** 2, dim=1)
     if objective == "quadratic":
         return quad
-    return quad + 0.2 * torch.sum(torch.sin(float(sin_freq) * z), dim=1)
+    return quad + 0.2 * torch_mod.sum(torch_mod.sin(float(sin_freq) * z), dim=1)
 
 def _safe_for_logplot(vals, eps: float = 1e-16):
     out = []
@@ -151,7 +151,7 @@ def main() -> None:
             # RP estimator via autograd through reparameterized objective.
             mu_rp = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             z_rp = mu_rp[None, :] + eps
-            x_rp = _reward_from_z(z_rp, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
+            x_rp = _reward_from_z(torch, z_rp, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
             l_rp = os_l.expected_lstat(x_rp)
             g_rp = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
@@ -159,7 +159,7 @@ def main() -> None:
             # Important: detach samples in the score term (treat sampled z as fixed)
             # so grad_mu log p(z; mu) is computed correctly.
             z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
-            x_lr = _reward_from_z(z_sample, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
+            x_lr = _reward_from_z(torch, z_sample, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
             l_adv = os_l.expected_lstat_advantage(x_lr).detach()
 
             mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)

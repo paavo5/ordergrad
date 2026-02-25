@@ -196,3 +196,14 @@ examples/run_all_plots.sh examples/data/<timestamp> examples/artifacts/<timestam
 
 `plot_stored_data.py` is intentionally easy to tune directly (line styles, labels,
 which experiment groups to aggregate).
+
+
+## 11) Dimensionality dependence plot (single figure)
+
+`plot_dimensionality_snr.py` loads stored `mc_snr_continuous` runs (e.g. from
+`run_all_experiments.sh`) and creates one combined figure where the x-axis is
+dimensionality.
+
+```bash
+python examples/plot_dimensionality_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_cont_fixN_varydim_combined.png
+```

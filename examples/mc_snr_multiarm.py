@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""MC variance/SNR study for multi-arm LR gradients (torch-only).
-
-For each k in --k-grid, estimates:
-- mean gradient E[g]
-- scalar variance V[g] (sum of per-dimension variances)
-- signal-to-noise ratio SNR = ||E[g]||^2 / V[g]
-
-Gradient estimator uses ordergrad L-advantage with LR score-function scaling.
-"""
+"""MC variance/SNR study for multi-arm LR gradients (torch-only)."""
 
 from __future__ import annotations
 
@@ -67,10 +59,33 @@ def _parse_k_grid(spec: str) -> list[float]:
     return ks
 
 
+def _make_rewards(m: int, mode: str, *, torch_mod, dtype, device):
+    mode = str(mode).strip().lower()
+    if mode == "gaussian":
+        return torch_mod.sort(torch_mod.randn(m, dtype=dtype, device=device))[0]
+    if mode in {"linear", "arange"}:
+        return torch_mod.arange(m, dtype=dtype, device=device)
+    if mode in {"exp", "pow2", "2^m"}:
+        return torch_mod.pow(torch_mod.tensor(2.0, dtype=dtype, device=device), torch_mod.arange(m, dtype=dtype, device=device))
+    raise SystemExit("--reward-mode must be one of: gaussian, linear, exp")
+
+
+def _make_probs(m: int, mode: str, *, torch_mod, dtype, device):
+    mode = str(mode).strip().lower()
+    if mode == "random":
+        theta = torch_mod.randn(m, dtype=dtype, device=device)
+        return torch_mod.softmax(theta, dim=0)
+    if mode in {"uniform", "constant", "equal"}:
+        return torch_mod.full((m,), 1.0 / float(m), dtype=dtype, device=device)
+    raise SystemExit("--prob-mode must be one of: random, uniform")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="MC SNR vs k for multi-arm LR gradient estimator (torch-only).")
     ap.add_argument("--N", type=int, default=64)
     ap.add_argument("--num-arms", type=int, default=6)
+    ap.add_argument("--reward-mode", type=str, default="gaussian", choices=["gaussian", "linear", "exp"], help="How arm rewards are generated: gaussian (fixed random), linear (arange), exp (2**m).")
+    ap.add_argument("--prob-mode", type=str, default="random", choices=["random", "uniform"], help="How action probabilities are set: random draw or uniform.")
     ap.add_argument("--k-grid", type=str, default="1,2,3,4,5,6")
     ap.add_argument("--num-mc", type=int, default=2000, help="Number of independent gradient-estimator draws per k.")
     ap.add_argument("--a", type=str, default=None)
@@ -107,9 +122,8 @@ def main() -> None:
     if any(k < 1 or k > args.N for k in ks):
         raise SystemExit("All k in --k-grid must satisfy 1 <= k <= N")
 
-    r = torch.sort(torch.randn(m, dtype=dtype, device=device))[0]
-    theta = torch.randn(m, dtype=dtype, device=device)
-    p = torch.softmax(theta, dim=0)
+    r = _make_rewards(m, args.reward_mode, torch_mod=torch, dtype=dtype, device=device)
+    p = _make_probs(m, args.prob_mode, torch_mod=torch, dtype=dtype, device=device)
     sampler = BufferedIndexSampler(p, buffer_size=args.sample_buffer_size)
 
     var_vals, snr_vals, mean_norm_vals = [], [], []
@@ -124,10 +138,9 @@ def main() -> None:
         for t in range(args.num_mc):
             idx = sampler.sample(args.N)
             x = r[idx]
-            l_adv = os_l.expected_lstat_advantage(x).detach()  # (N,)
-            score = torch.nn.functional.one_hot(idx, num_classes=m).to(dtype) - p[None, :]  # (N,m)
-            g = float(k) * (l_adv[:, None] * score).mean(dim=0)
-            grads[t] = g
+            l_adv = os_l.expected_lstat_advantage(x).detach()
+            score = torch.nn.functional.one_hot(idx, num_classes=m).to(dtype) - p[None, :]
+            grads[t] = float(k) * (l_adv[:, None] * score).mean(dim=0)
 
         mean_g = grads.mean(dim=0)
         var_g = grads.var(dim=0, unbiased=True).sum()
@@ -179,6 +192,8 @@ def main() -> None:
             "setup": {
                 "N": args.N,
                 "num_arms": args.num_arms,
+                "reward_mode": args.reward_mode,
+                "prob_mode": args.prob_mode,
                 "k_grid": ks,
                 "num_mc": args.num_mc,
                 "a": args.a,
@@ -200,7 +215,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    try:
-        import torch
-    except Exception as e:  # pragma: no cover
-        raise SystemExit("torch is required. Install with `pip install torch`.") from e

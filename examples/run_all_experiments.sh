@@ -13,19 +13,19 @@ PYTHONPATH=. python3 examples/plot_order_weights.py --N 100 --k 10,20 --ranks 0 
 
 # MC gradient SNR: fix N vary k, multiarm reward modes
 for RM in linear exp gaussian; do
-  PYTHONPATH=. python3 examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 1000 --reward-mode "$RM" --a TopM:3 --store-data --tag "snr_multiarm_fixN_varyk_${RM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_multiarm_fixN_varyk_${RM}.png" || true
+  PYTHONPATH=. python3 examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 1000 --reward-mode "$RM" --a ReMax --store-data --tag "snr_multiarm_fixN_varyk_${RM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_multiarm_fixN_varyk_${RM}.png" || true
 done
 # Continuous fix N vary k, objective modes
 for OBJ in quadratic quad_sin; do
-  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 1000 --objective "$OBJ" --sin-freq 4.0 --a TopM:3 --store-data --tag "snr_cont_fixN_varyk_${OBJ}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varyk_${OBJ}.png" || true
+  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 1000 --objective "$OBJ" --sin-freq 4.0 --a ReMax --store-data --tag "snr_cont_fixN_varyk_${OBJ}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varyk_${OBJ}.png" || true
 done
 
 # MC gradient SNR: fix N vary arms/dims
 for ARMS in 4 8 16; do
-  PYTHONPATH=. python3 examples/mc_snr_multiarm.py --N 64 --num-arms "$ARMS" --k-grid 4 --num-mc 1000 --reward-mode linear --a TopM:3 --store-data --tag "snr_multiarm_fixN_varyarms_${ARMS}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_multiarm_fixN_varyarms_${ARMS}.png" || true
+  PYTHONPATH=. python3 examples/mc_snr_multiarm.py --N 64 --num-arms "$ARMS" --k-grid 4 --num-mc 1000 --reward-mode linear --a ReMax --store-data --tag "snr_multiarm_fixN_varyarms_${ARMS}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_multiarm_fixN_varyarms_${ARMS}.png" || true
 done
 for DIM in 1 2 4 8; do
-  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim "$DIM" --k-grid 4 --num-mc 1000 --objective quad_sin --sin-freq 6.0 --a TopM:3 --store-data --tag "snr_cont_fixN_varydim_${DIM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varydim_${DIM}.png" || true
+  PYTHONPATH=. python3 examples/mc_snr_continuous.py --N 64 --dim "$DIM" --k-grid 4 --num-mc 1000 --objective quad_sin --sin-freq 6.0 --a ReMax --store-data --tag "snr_cont_fixN_varydim_${DIM}" --data-dir "$DATA_DIR" --output "$ART_DIR/snr_cont_fixN_varydim_${DIM}.png" || true
 done
 
 # Unbiasedness checks (gradient error down)
@@ -43,5 +43,8 @@ PYTHONPATH=. python3 examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 
 # Quantile vs HarrellDavis accuracy
 PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6,10 --store-data --tag quantile_uniform_q025 --data-dir "$DATA_DIR" --output "$ART_DIR/quantile_uniform_q025.png" || true
 PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.25 --N 64 --k-list 6,10 --store-data --tag quantile_gaussian_q025 --data-dir "$DATA_DIR" --output "$ART_DIR/quantile_gaussian_q025.png" || true
+
+# Combined dimensionality dependence plot (single figure, x-axis = dimension)
+PYTHONPATH=. python3 examples/plot_dimensionality_snr.py --data-dir "$DATA_DIR" --tag-prefix "mc_snr_continuous__snr_cont_fixN_varydim_" --output "$ART_DIR/snr_cont_fixN_varydim_combined.png" || true
 
 echo "Done. data_dir=$DATA_DIR artifacts_dir=$ART_DIR"
