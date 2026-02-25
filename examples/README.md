@@ -9,8 +9,8 @@ These scripts are intended as a hands-on playground for understanding and profil
 ### Features
 - `--mode unconditional`: plot `W[m,j]`.
 - `--mode conditional`: plot conditional inclusion weights for a fixed conditioned sorted rank `r`.
-- `--ranks` supports explicit lists and inclusive ranges: e.g. `1,3..6,10`.
-- Optional `--a` lets you define sparse L-stat coefficients on listed ranks:
+- `--ranks` supports explicit lists and inclusive ranges: e.g. `1,3..6,10`. Use `--ranks 0` to skip individual rank curves and only plot combined `a`-weighted curves.
+- Optional `--a` lets you define sparse L-stat coefficients on listed ranks, or provide preset strings directly. Multiple presets can be passed as a comma list (e.g. `--a TopM:3,BotM:3,Median`):
   - one value: broadcast to all listed ranks,
   - or one value per listed rank,
   - or a preset string (e.g. `TopM:3`, `Median`, `TopBot:2`).

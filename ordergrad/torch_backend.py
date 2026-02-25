@@ -462,9 +462,19 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
-            idx = int(math.floor(q * (k - 1) + 0.5))
+            # Interpolate between adjacent rank bins using rank centers
+            # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
+            s_pos = q * k + 0.5
             out = torch.zeros((k,), dtype=dtype, device=device)
-            out[idx] = 1.0
+            if s_pos <= 1.0:
+                out[0] = 1.0
+            elif s_pos >= float(k):
+                out[k - 1] = 1.0
+            else:
+                left = int(math.floor(s_pos))
+                frac = s_pos - float(left)
+                out[left - 1] = 1.0 - frac
+                out[left] = frac
             return out
 
         if key == "rank":

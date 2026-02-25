@@ -212,7 +212,7 @@ Each backend exposes `OrderStatTransform` with:
     - `"ReMin"`: bottom-1 only (`j=floor(k)`)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
     - `"Rank:r"`: place all mass on explicit 1-based rank `r`
-    - `"Quantile:q"`: place all mass on the rank nearest quantile `q` (`q=0 -> j=1`, `q=1 -> j=floor(k)`)
+    - `"Quantile:q"`: interpolate between adjacent ranks based on quantile `q` using rank-center interpolation (`q=0 -> j=1`, `q=1 -> j=floor(k)`; boundaries split mass across neighbors).
     - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at quantile `q in [0,1]`

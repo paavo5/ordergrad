@@ -359,9 +359,17 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
-            idx = int(math.floor(q * (k - 1) + 0.5))
+            # Interpolate between adjacent rank bins using rank centers
+            # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
+            s_pos = q * k + 0.5
             out = jnp.zeros((k,), dtype=dtype)
-            return out.at[idx].set(1.0)
+            if s_pos <= 1.0:
+                return out.at[0].set(1.0)
+            if s_pos >= float(k):
+                return out.at[k - 1].set(1.0)
+            left = int(math.floor(s_pos))
+            frac = s_pos - float(left)
+            return out.at[left - 1].set(1.0 - frac).at[left].set(frac)
 
         if key == "rank":
             if not m_txt.strip():

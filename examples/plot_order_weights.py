@@ -25,7 +25,13 @@ from ordergrad.numpy_backend import (
 
 
 def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
-    """Parse rank spec with comma tokens and inclusive a..b ranges."""
+    """Parse rank spec with comma tokens and inclusive a..b ranges.
+
+    Special case: ``0`` means "plot no individual rank curves".
+    """
+    if spec.strip() == "0":
+        return []
+
     out: list[int] = []
     for raw in spec.split(","):
         token = raw.strip()
@@ -53,10 +59,11 @@ def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
     # De-duplicate while preserving order.
     dedup = list(dict.fromkeys(out))
     return dedup
-
-
-def _parse_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
+def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
     text = spec.strip()
+    if not text:
+        raise SystemExit("--a contains an empty entry.")
+
     if any(ch.isalpha() for ch in text):
         try:
             return OrderStatTransform._preset_lstat_weights(k_ord, text, dtype=np.float64)
@@ -66,6 +73,14 @@ def _parse_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
     vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:
         raise SystemExit("--a was provided but no weights were parsed.")
+
+    if len(ranks) == 0:
+        if len(vals) != k_ord:
+            raise SystemExit(
+                f"When --ranks=0, numeric --a must provide exactly floor(k)={k_ord} values or use a preset string."
+            )
+        return np.asarray(vals, dtype=np.float64)
+
     if len(vals) == 1:
         vals = vals * len(ranks)
     elif len(vals) != len(ranks):
@@ -77,6 +92,15 @@ def _parse_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
     return a
 
 
+def _parse_a_list(spec: str, *, ranks: list[int], k_ord: int) -> list[tuple[str, np.ndarray]]:
+    text = spec.strip()
+    if any(ch.isalpha() for ch in text):
+        entries = [tok.strip() for tok in text.split(",") if tok.strip()]
+        if not entries:
+            raise SystemExit("--a was provided but no definitions were parsed.")
+        return [(entry, _parse_single_a(entry, ranks=ranks, k_ord=k_ord)) for entry in entries]
+
+    return [(text, _parse_single_a(text, ranks=ranks, k_ord=k_ord))]
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot order-statistic weights by sorted rank.")
     parser.add_argument("--N", type=int, default=100, help="Batch/population size.")
@@ -85,7 +109,7 @@ def main() -> None:
         "--ranks",
         type=str,
         default="1,5,10,15,20",
-        help="Comma-separated ranks and/or ranges (1-based), e.g. 1,3..6,10.",
+        help="Comma-separated ranks and/or ranges (1-based), e.g. 1,3..6,10. Use 0 to disable individual-rank curves.",
     )
     parser.add_argument(
         "--a",
@@ -93,7 +117,7 @@ def main() -> None:
         default=None,
         help=(
             "Optional L-stat weights for listed ranks. "
-            "Provide either one value (broadcast to all listed ranks), one value per listed rank, or a preset string (e.g. TopM:3, Median)."
+            "Provide one numeric definition (broadcast or per-rank), one preset, or a comma-separated list of preset definitions (e.g. TopM:3,BotM:3,Median)."
         ),
     )
     parser.add_argument(
@@ -138,7 +162,7 @@ def main() -> None:
     ranks = _parse_ranks(args.ranks, k_ord=k_ord)
     W = precompute_W_unconditional(args.N, args.k, dtype=np.float64)
 
-    a = _parse_a(args.a, ranks=ranks, k_ord=k_ord) if args.a is not None else None
+    a_list = _parse_a_list(args.a, ranks=ranks, k_ord=k_ord) if args.a is not None else []
 
     m = np.arange(1, args.N + 1)
     fig, ax = plt.subplots(figsize=(10, 5.5))
@@ -148,6 +172,8 @@ def main() -> None:
         title = f"Unconditional order-stat weights W[m,j] (N={args.N}, k={args.k}, floor(k)={k_ord})"
         for j in ranks:
             ax.plot(m, W_plot[:, j - 1], label=f"j={j}")
+        for spec_label, a_vec in a_list:
+            ax.plot(m, W @ a_vec, linestyle="--", linewidth=1.8, label=f"combined W @ a ({spec_label})")
     else:
         r = int(args.conditioned_rank)
         if not (1 <= r <= args.N):
@@ -179,43 +205,39 @@ def main() -> None:
             if args.show_delta:
                 ax.plot(m, W_cond[:, j - 1] - W[:, j - 1], linestyle="--", alpha=0.9, label=f"delta j={j}")
 
-        if a is not None:
-            w_rank_cond = W_cond @ a
-            w_rank_uncond = W @ a
+        for spec_label, a_vec in a_list:
+            w_rank_cond = W_cond @ a_vec
+            w_rank_uncond = W @ a_vec
             ax.plot(
                 m,
                 w_rank_cond,
-                color="black",
                 linestyle="-",
                 linewidth=1.8,
-                label="combined conditional W_cond @ a",
+                label=f"combined conditional W_cond @ a ({spec_label})",
             )
             ax.plot(
                 m,
                 w_rank_uncond,
-                color="black",
                 linestyle=":",
                 linewidth=1.5,
-                label="combined unconditional W @ a",
+                label=f"combined unconditional W @ a ({spec_label})",
             )
             if W_loo is not None:
-                w_rank_loo = W_loo @ a
+                w_rank_loo = W_loo @ a_vec
                 ax.plot(
                     m,
                     w_rank_loo,
-                    color="black",
                     linestyle="-.",
                     linewidth=1.5,
-                    label="combined leave-one-out excl @ a",
+                    label=f"combined leave-one-out excl @ a ({spec_label})",
                 )
             if args.show_delta:
                 ax.plot(
                     m,
                     w_rank_cond - w_rank_uncond,
-                    color="gray",
                     linestyle="--",
                     linewidth=1.3,
-                    label="combined delta",
+                    label=f"combined delta ({spec_label})",
                 )
 
     ax.set_title(title)
@@ -224,9 +246,6 @@ def main() -> None:
     ax.grid(alpha=0.3)
     ax.legend(ncol=2, fontsize=8, loc="upper left")
 
-    if a is not None and args.mode == "unconditional":
-        w_rank = W @ a
-        ax.plot(m, w_rank, color="black", linestyle="--", linewidth=1.8, label="combined W @ a")
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
