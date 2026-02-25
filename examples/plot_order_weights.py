@@ -24,6 +24,16 @@ from ordergrad.numpy_backend import (
 )
 
 
+def _parse_k_list(spec: str) -> list[float]:
+    vals = [tok.strip() for tok in str(spec).split(",") if tok.strip()]
+    if not vals:
+        raise SystemExit("No --k values were provided.")
+    out = [float(v) for v in vals]
+    if any(v <= 0.0 for v in out):
+        raise SystemExit("All --k values must be > 0.")
+    return out
+
+
 def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
     """Parse rank spec with comma tokens and inclusive a..b ranges.
 
@@ -56,9 +66,9 @@ def _parse_ranks(spec: str, *, k_ord: int) -> list[int]:
     if bad:
         raise SystemExit(f"Invalid ranks {bad}; require each in [1, {k_ord}].")
 
-    # De-duplicate while preserving order.
-    dedup = list(dict.fromkeys(out))
-    return dedup
+    return list(dict.fromkeys(out))
+
+
 def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
     text = spec.strip()
     if not text:
@@ -92,32 +102,53 @@ def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
     return a
 
 
-def _parse_a_list(spec: str, *, ranks: list[int], k_ord: int) -> list[tuple[str, np.ndarray]]:
+def _parse_a_specs(spec: str) -> list[str]:
     text = spec.strip()
+    if not text:
+        raise SystemExit("--a was provided but no definitions were parsed.")
     if any(ch.isalpha() for ch in text):
         entries = [tok.strip() for tok in text.split(",") if tok.strip()]
         if not entries:
             raise SystemExit("--a was provided but no definitions were parsed.")
-        return [(entry, _parse_single_a(entry, ranks=ranks, k_ord=k_ord)) for entry in entries]
+        return entries
+    return [text]
 
-    return [(text, _parse_single_a(text, ranks=ranks, k_ord=k_ord))]
+
+def _broadcast_pair_lists(k_list: list[float], a_specs: list[str]) -> list[tuple[float, str]]:
+    if len(k_list) == len(a_specs):
+        return list(zip(k_list, a_specs))
+    if len(k_list) == 1:
+        return [(k_list[0], a_spec) for a_spec in a_specs]
+    if len(a_specs) == 1:
+        return [(k, a_specs[0]) for k in k_list]
+    raise SystemExit(
+        "When providing multiple --k and --a entries, either lengths must match, or one side must have length 1 (broadcast)."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot order-statistic weights by sorted rank.")
     parser.add_argument("--N", type=int, default=100, help="Batch/population size.")
-    parser.add_argument("--k", type=float, default=20.0, help="Subset/sample parameter k (can be real).")
+    parser.add_argument(
+        "--k",
+        type=str,
+        default="20",
+        help="Subset/sample parameter k (real). Can be a comma-separated list, e.g. 10,20,30.",
+    )
     parser.add_argument(
         "--ranks",
         type=str,
         default="1,5,10,15,20",
-        help="Comma-separated ranks and/or ranges (1-based), e.g. 1,3..6,10. Use 0 to disable individual-rank curves.",
+        help="Comma-separated ranks/ranges (1-based), e.g. 1,3..6,10. Use 0 to disable individual-rank curves.",
     )
     parser.add_argument(
         "--a",
         type=str,
         default=None,
         help=(
-            "Optional L-stat weights for listed ranks. "
-            "Provide one numeric definition (broadcast or per-rank), one preset, or a comma-separated list of preset definitions (e.g. TopM:3,BotM:3,Median)."
+            "Optional L-stat definitions. Provide one numeric definition (broadcast/per-rank), one preset, or multiple presets"
+            " as a comma-separated list (e.g. TopM:3,BotM:3,Median). When combined with multi-k, lengths must match or one side"
+            " must be length 1 (broadcast)."
         ),
     )
     parser.add_argument(
@@ -133,18 +164,11 @@ def main() -> None:
         default=1,
         help="For conditional mode: conditioned sorted rank r (1-based) of the included item.",
     )
-    parser.add_argument(
-        "--show-delta",
-        action="store_true",
-        help="In conditional mode, also plot the change vs unconditional: W_cond - W.",
-    )
+    parser.add_argument("--show-delta", action="store_true", help="In conditional mode, also plot W_cond - W.")
     parser.add_argument(
         "--show-leave-one-out",
         action="store_true",
-        help=(
-            "In conditional mode, also plot leave-one-out weights for excluding "
-            "the same conditioned rank."
-        ),
+        help="In conditional mode, also plot leave-one-out weights for excluding the same conditioned rank.",
     )
     parser.add_argument("--output", type=str, default="examples/artifacts/order_weights.png", help="Output PNG path.")
     parser.add_argument("--show", action="store_true", help="Show interactive window in addition to saving.")
@@ -155,30 +179,65 @@ def main() -> None:
     except Exception as e:  # pragma: no cover
         raise SystemExit("matplotlib is required. Install with `pip install matplotlib`.") from e
 
-    k_ord = int(np.floor(args.k))
-    if not (1 <= k_ord <= args.N):
-        raise SystemExit("Require 1 <= floor(k) <= N.")
+    k_values = _parse_k_list(args.k)
+    k_ord_values = [int(np.floor(k)) for k in k_values]
+    if any((k_ord < 1 or k_ord > args.N) for k_ord in k_ord_values):
+        raise SystemExit("Require 1 <= floor(k) <= N for all provided --k values.")
 
-    ranks = _parse_ranks(args.ranks, k_ord=k_ord)
-    W = precompute_W_unconditional(args.N, args.k, dtype=np.float64)
+    k_ord_min = min(k_ord_values)
+    ranks = _parse_ranks(args.ranks, k_ord=k_ord_min)
 
-    a_list = _parse_a_list(args.a, ranks=ranks, k_ord=k_ord) if args.a is not None else []
+    # Precompute matrices for each unique k to avoid repeated setup.
+    W_cache: dict[float, np.ndarray] = {}
+    for k in sorted(set(k_values)):
+        W_cache[k] = precompute_W_unconditional(args.N, k, dtype=np.float64)
+
+    a_pairs: list[tuple[float, str, np.ndarray]] = []
+    if args.a is not None:
+        a_specs = _parse_a_specs(args.a)
+        for k, a_spec in _broadcast_pair_lists(k_values, a_specs):
+            k_ord = int(np.floor(k))
+            a_vec = _parse_single_a(a_spec, ranks=ranks, k_ord=k_ord)
+            a_pairs.append((k, a_spec, a_vec))
 
     m = np.arange(1, args.N + 1)
     fig, ax = plt.subplots(figsize=(10, 5.5))
 
     if args.mode == "unconditional":
-        W_plot = W
-        title = f"Unconditional order-stat weights W[m,j] (N={args.N}, k={args.k}, floor(k)={k_ord})"
-        for j in ranks:
-            ax.plot(m, W_plot[:, j - 1], label=f"j={j}")
-        for spec_label, a_vec in a_list:
-            ax.plot(m, W @ a_vec, linestyle="--", linewidth=1.8, label=f"combined W @ a ({spec_label})")
+        if ranks:
+            for k in sorted(set(k_values)):
+                W = W_cache[k]
+                k_ord = int(np.floor(k))
+                for j in ranks:
+                    if j > k_ord:
+                        raise SystemExit(f"Rank j={j} is invalid for k={k} (floor(k)={k_ord}).")
+                    if len(set(k_values)) == 1:
+                        label = f"j={j}"
+                    else:
+                        label = f"k={k:g}, j={j}"
+                    ax.plot(m, W[:, j - 1], label=label)
+
+        title = f"Unconditional order-stat weights (N={args.N})"
+        if len(set(k_values)) == 1:
+            k0 = k_values[0]
+            title = f"Unconditional order-stat weights W[m,j] (N={args.N}, k={k0:g}, floor(k)={int(np.floor(k0))})"
+
+        for k, spec_label, a_vec in a_pairs:
+            W = W_cache[k]
+            ax.plot(m, W @ a_vec, linestyle="--", linewidth=1.8, label=f"combined W @ a (k={k:g}, a={spec_label})")
+
     else:
+        if len(set(k_values)) != 1:
+            raise SystemExit("Conditional mode currently supports a single --k value.")
+
+        k = k_values[0]
+        k_ord = int(np.floor(k))
         r = int(args.conditioned_rank)
         if not (1 <= r <= args.N):
             raise SystemExit(f"--conditioned-rank must be in [1, {args.N}].")
-        A, B, C = precompute_ABC_conditional_including_rank(args.N, args.k, dtype=np.float64)
+
+        W = W_cache[k]
+        A, B, C = precompute_ABC_conditional_including_rank(args.N, k, dtype=np.float64)
         W_cond = np.empty_like(W)
         W_cond[: r - 1, :] = A[: r - 1, :]
         W_cond[r - 1, :] = B[r - 1, :]
@@ -186,18 +245,20 @@ def main() -> None:
 
         W_loo = None
         if args.show_leave_one_out:
-            if args.k > args.N - 1:
+            if k > args.N - 1:
                 raise SystemExit("--show-leave-one-out requires k <= N-1.")
-            Wm = precompute_W_leave_one_out(args.N, args.k, dtype=np.float64)
+            Wm = precompute_W_leave_one_out(args.N, k, dtype=np.float64)
             W_loo = np.zeros_like(W)
             W_loo[: r - 1, :] = Wm[: r - 1, :]
             W_loo[r:, :] = Wm[r - 1 :, :]
 
         title = (
             "Conditional inclusion weights "
-            f"W_cond[r,m,j] with conditioned sorted rank r={r} (N={args.N}, k={args.k}, floor(k)={k_ord})"
+            f"W_cond[r,m,j] with conditioned sorted rank r={r} (N={args.N}, k={k:g}, floor(k)={k_ord})"
         )
         for j in ranks:
+            if j > k_ord:
+                raise SystemExit(f"Rank j={j} is invalid for k={k} (floor(k)={k_ord}).")
             ax.plot(m, W_cond[:, j - 1], label=f"cond j={j}")
             ax.plot(m, W[:, j - 1], linestyle=":", alpha=0.8, label=f"uncond j={j}")
             if W_loo is not None:
@@ -205,47 +266,22 @@ def main() -> None:
             if args.show_delta:
                 ax.plot(m, W_cond[:, j - 1] - W[:, j - 1], linestyle="--", alpha=0.9, label=f"delta j={j}")
 
-        for spec_label, a_vec in a_list:
+        for _, spec_label, a_vec in a_pairs:
             w_rank_cond = W_cond @ a_vec
             w_rank_uncond = W @ a_vec
-            ax.plot(
-                m,
-                w_rank_cond,
-                linestyle="-",
-                linewidth=1.8,
-                label=f"combined conditional W_cond @ a ({spec_label})",
-            )
-            ax.plot(
-                m,
-                w_rank_uncond,
-                linestyle=":",
-                linewidth=1.5,
-                label=f"combined unconditional W @ a ({spec_label})",
-            )
+            ax.plot(m, w_rank_cond, linestyle="-", linewidth=1.8, label=f"combined conditional (a={spec_label})")
+            ax.plot(m, w_rank_uncond, linestyle=":", linewidth=1.5, label=f"combined unconditional (a={spec_label})")
             if W_loo is not None:
                 w_rank_loo = W_loo @ a_vec
-                ax.plot(
-                    m,
-                    w_rank_loo,
-                    linestyle="-.",
-                    linewidth=1.5,
-                    label=f"combined leave-one-out excl @ a ({spec_label})",
-                )
+                ax.plot(m, w_rank_loo, linestyle="-.", linewidth=1.5, label=f"combined loo-excl (a={spec_label})")
             if args.show_delta:
-                ax.plot(
-                    m,
-                    w_rank_cond - w_rank_uncond,
-                    linestyle="--",
-                    linewidth=1.3,
-                    label=f"combined delta ({spec_label})",
-                )
+                ax.plot(m, w_rank_cond - w_rank_uncond, linestyle="--", linewidth=1.3, label=f"combined delta (a={spec_label})")
 
     ax.set_title(title)
     ax.set_xlabel("sorted index m")
     ax.set_ylabel("weight")
     ax.grid(alpha=0.3)
     ax.legend(ncol=2, fontsize=8, loc="upper left")
-
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
