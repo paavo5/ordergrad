@@ -164,3 +164,36 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6
 python examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.9 --N 128 --k-list 6,12 --t-grid 1,2,5,10,20,50,100,200
 ```
+
+
+## 9) Runtime bar benchmark
+
+`benchmark_runtime_bar.py` runs a compact runtime benchmark and writes a bar chart
+plus data/metadata files.
+
+- Saves PNG and PDF plots.
+- Always stores `.npz` and `.json` in `--data-dir`.
+
+```bash
+python examples/benchmark_runtime_bar.py --N 300 --k 30 --repeats 100 --tag runtime_default
+```
+
+## 10) Orchestration scripts for full sweeps
+
+Two helper bash scripts automate large experiment/plot batches:
+
+- `run_all_experiments.sh`: executes a broad set of experiments and stores outputs
+  under timestamped subfolders in `examples/data/` and `examples/artifacts/`.
+- `run_all_plots.sh`: loads stored `.json/.npz` entries and creates compiled plots
+  via `plot_stored_data.py` (both PNG and PDF).
+
+```bash
+# Run all experiments
+examples/run_all_experiments.sh
+
+# Build compiled plots from stored data
+examples/run_all_plots.sh examples/data/<timestamp> examples/artifacts/<timestamp>/compiled
+```
+
+`plot_stored_data.py` is intentionally easy to tune directly (line styles, labels,
+which experiment groups to aggregate).

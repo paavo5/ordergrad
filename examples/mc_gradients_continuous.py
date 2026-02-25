@@ -9,8 +9,11 @@ Supports both 1D and multi-dimensional location parameters.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 
 class BufferedNormalSampler:
@@ -62,6 +65,14 @@ def _parse_a(spec: str | None, k_ord: int, torch_mod: Any, *, device, dtype):
     return torch_mod.tensor(vals, dtype=dtype, device=device).flip(0)
 
 
+
+
+def _reward_from_z(z, *, center: float, objective: str, sin_freq: float):
+    quad = -torch.sum((z - float(center)) ** 2, dim=1)
+    if objective == "quadratic":
+        return quad
+    return quad + 0.2 * torch.sum(torch.sin(float(sin_freq) * z), dim=1)
+
 def _safe_for_logplot(vals, eps: float = 1e-16):
     out = []
     for v in vals:
@@ -84,6 +95,11 @@ def main() -> None:
     ap.add_argument("--a", type=str, default=None)
     ap.add_argument("--t-grid", type=str, default="1,2,5,10,20,50,100,200,500")
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_grad_continuous.png")
+    ap.add_argument("--objective", type=str, default="quadratic", choices=["quadratic", "quad_sin"], help="Objective shape for rewards in continuous case.")
+    ap.add_argument("--sin-freq", type=float, default=4.0, help="Frequency used when --objective=quad_sin.")
+    ap.add_argument("--store-data", action="store_true", help="Store experiment arrays and metadata to disk.")
+    ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
+    ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -135,7 +151,7 @@ def main() -> None:
             # RP estimator via autograd through reparameterized objective.
             mu_rp = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             z_rp = mu_rp[None, :] + eps
-            x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1)
+            x_rp = _reward_from_z(z_rp, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
             l_rp = os_l.expected_lstat(x_rp)
             g_rp = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
@@ -143,7 +159,7 @@ def main() -> None:
             # Important: detach samples in the score term (treat sampled z as fixed)
             # so grad_mu log p(z; mu) is computed correctly.
             z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
-            x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1)
+            x_lr = _reward_from_z(z_sample, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
             l_adv = os_l.expected_lstat_advantage(x_lr).detach()
 
             mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
@@ -206,6 +222,54 @@ def main() -> None:
     fig2.tight_layout()
     fig2.savefig(comp_out, dpi=150)
     print(f"Saved: {comp_out}")
+
+    pdf_out = out.with_suffix(".pdf")
+    pdf_comp_out = comp_out.with_suffix(".pdf")
+    fig.savefig(pdf_out)
+    fig2.savefig(pdf_comp_out)
+    print(f"Saved: {pdf_out}")
+    print(f"Saved: {pdf_comp_out}")
+
+    if args.store_data:
+        data_dir = Path(args.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"mc_gradients_continuous__{args.tag}"
+        npz_path = data_dir / f"{stem}.npz"
+        json_path = data_dir / f"{stem}.json"
+        np.savez(
+            npz_path,
+            t=np.asarray(t_grid, dtype=np.int64),
+            abs_gap=np.asarray(abs_gap, dtype=np.float64),
+            rel_gap=np.asarray(rel_gap, dtype=np.float64),
+            rp_trace=np.asarray(rp_trace, dtype=np.float64),
+            lr_trace=np.asarray(lr_trace, dtype=np.float64),
+        )
+        metadata = {
+            "experiment": "mc_gradients_continuous",
+            "tag": args.tag,
+            "setup": {
+                "N": int(args.N),
+                "k": float(args.k),
+                "dim": int(args.dim),
+                "mu": float(args.mu),
+                "center": float(args.center),
+                "objective": args.objective,
+                "sin_freq": float(args.sin_freq),
+                "a": args.a,
+                "seed": int(args.seed),
+                "t_grid": t_grid,
+            },
+            "artifacts": {
+                "plot_png": str(out),
+                "plot_pdf": str(pdf_out),
+                "components_png": str(comp_out),
+                "components_pdf": str(pdf_comp_out),
+                "data_npz": str(npz_path),
+            },
+        }
+        json_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved: {npz_path}")
+        print(f"Saved: {json_path}")
 
     if args.show:
         plt.show()

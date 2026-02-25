@@ -81,6 +81,8 @@ def main() -> None:
     ap.add_argument("--dim", type=int, default=1)
     ap.add_argument("--mu", type=float, default=0.5)
     ap.add_argument("--center", type=float, default=1.0)
+    ap.add_argument("--objective", type=str, default="quadratic", choices=["quadratic", "quad_sin"], help="Objective shape for rewards in continuous case.")
+    ap.add_argument("--sin-freq", type=float, default=4.0, help="Frequency used when --objective=quad_sin.")
     ap.add_argument("--k-grid", type=str, default="1,2,3,4,5,6")
     ap.add_argument("--num-mc", type=int, default=2000)
     ap.add_argument("--a", type=str, default=None)
@@ -130,12 +132,18 @@ def main() -> None:
 
             mu_rp = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             z_rp = mu_rp[None, :] + eps
-            x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1)
+            if args.objective == "quadratic":
+                x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1)
+            else:
+                x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1) + 0.2 * torch.sum(torch.sin(float(args.sin_freq) * z_rp), dim=1)
             l_rp = os_l.expected_lstat(x_rp)
             g_rp_all[t] = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
             z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
-            x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1)
+            if args.objective == "quadratic":
+                x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1)
+            else:
+                x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1) + 0.2 * torch.sum(torch.sin(float(args.sin_freq) * z_sample), dim=1)
             l_adv = os_l.expected_lstat_advantage(x_lr).detach()
             mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             logp = -0.5 * torch.sum((z_sample - mu_lr[None, :]) ** 2, dim=1) - (args.dim * const)

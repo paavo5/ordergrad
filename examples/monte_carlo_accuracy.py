@@ -10,6 +10,7 @@ exact known-(r,p) target, showing convergence as t grows.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -195,6 +196,9 @@ def main() -> None:
     ap.add_argument("--arm-rank", type=int, default=1, help="1-based estimator rank j from top used in arm-detail plots (j=1 is highest order-stat).")
     ap.add_argument("--plot-arm-details", action="store_true", help="Also save arm-wise exact vs estimate plots at max(t-grid).")
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_error_curve.png")
+    ap.add_argument("--store-data", action="store_true", help="Store experiment arrays and metadata to disk.")
+    ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
+    ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -373,6 +377,46 @@ def main() -> None:
     fig.tight_layout()
     fig.savefig(out, dpi=150)
     print(f"Saved error curves: {out}")
+
+    if args.store_data:
+        data_dir = Path(args.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"monte_carlo_accuracy__{args.tag}"
+        npz_path = data_dir / f"{stem}.npz"
+        json_path = data_dir / f"{stem}.json"
+        np.savez(
+            npz_path,
+            t=np.asarray(t_grid, dtype=np.int64),
+            err_v_abs=np.asarray(err_v_abs, dtype=np.float64),
+            err_inc_abs=np.asarray(err_inc_abs, dtype=np.float64),
+            err_adv_abs=np.asarray(err_adv_abs, dtype=np.float64),
+            err_linc_abs=np.asarray(err_linc_abs, dtype=np.float64),
+            err_ladv_abs=np.asarray(err_ladv_abs, dtype=np.float64),
+            err_v_rel=np.asarray(err_v_rel, dtype=np.float64),
+            err_inc_rel=np.asarray(err_inc_rel, dtype=np.float64),
+            err_adv_rel=np.asarray(err_adv_rel, dtype=np.float64),
+            err_linc_rel=np.asarray(err_linc_rel, dtype=np.float64),
+            err_ladv_rel=np.asarray(err_ladv_rel, dtype=np.float64),
+        )
+        metadata = {
+            "experiment": "monte_carlo_accuracy",
+            "tag": args.tag,
+            "setup": {
+                "backend": args.backend,
+                "N": int(args.N),
+                "k": float(args.k),
+                "num_arms": int(args.num_arms),
+                "reward_mode": args.reward_mode,
+                "prob_mode": args.prob_mode,
+                "a": args.a,
+                "seed": int(args.seed),
+                "t_grid": t_grid,
+            },
+            "artifacts": {"plot_png": str(out), "data_npz": str(npz_path)},
+        }
+        json_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved: {npz_path}")
+        print(f"Saved: {json_path}")
 
     if args.plot_arm_details and last_inc_est_by_arm is not None and last_adv_est_by_arm is not None and last_linc_est_by_arm is not None and last_ladv_est_by_arm is not None:
         rank_idx = k_ord - args.arm_rank

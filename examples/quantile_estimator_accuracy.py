@@ -11,6 +11,7 @@ fraction of mass below the quantile.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from statistics import NormalDist
 
@@ -74,6 +75,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--t-grid", type=str, default="1,2,5,10,20,50,100,200,500", help="Comma-separated repetition counts t.")
     ap.add_argument("--output", type=str, default="examples/artifacts/quantile_estimator_accuracy.png")
+    ap.add_argument("--store-data", action="store_true", help="Store experiment arrays and metadata to disk.")
+    ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
+    ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -183,6 +187,40 @@ def main() -> None:
     fig.tight_layout()
     fig.savefig(out, dpi=150)
     print(f"Saved: {out}")
+
+    if args.store_data:
+        data_dir = Path(args.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"quantile_estimator_accuracy__{args.tag}"
+        npz_path = data_dir / f"{stem}.npz"
+        json_path = data_dir / f"{stem}.json"
+        np.savez(
+            npz_path,
+            t=np.asarray(t_grid, dtype=np.int64),
+            q_abs_err=np.asarray(q_abs_err, dtype=np.float64),
+            hd_abs_err=np.asarray(hd_abs_err, dtype=np.float64),
+            q_rel_err=np.asarray(q_rel_err, dtype=np.float64),
+            hd_rel_err=np.asarray(hd_rel_err, dtype=np.float64),
+        )
+        metadata = {
+            "experiment": "quantile_estimator_accuracy",
+            "tag": args.tag,
+            "setup": {
+                "N": int(args.N),
+                "k_list": [float(k_quantile), float(k_hd)],
+                "quantile": float(q),
+                "dist": args.dist,
+                "seed": int(args.seed),
+                "t_grid": t_grid,
+            },
+            "artifacts": {
+                "plot_png": str(out),
+                "data_npz": str(npz_path),
+            },
+        }
+        json_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved: {npz_path}")
+        print(f"Saved: {json_path}")
 
     if args.show:
         plt.show()

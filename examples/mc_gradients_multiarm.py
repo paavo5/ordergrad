@@ -8,10 +8,12 @@ exact known-(r,p) gradient computed with torch autograd.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from typing import Any
 
+import numpy as np
 import torch
 
 
@@ -104,6 +106,9 @@ def main() -> None:
     ap.add_argument("--a", type=str, default=None)
     ap.add_argument("--t-grid", type=str, default="1,2,5,10,20,50,100,200,500")
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_grad_multiarm.png")
+    ap.add_argument("--store-data", action="store_true", help="Store experiment arrays and metadata to disk.")
+    ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
+    ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -221,6 +226,53 @@ def main() -> None:
         fig2.tight_layout()
         fig2.savefig(comp_out, dpi=150)
         print(f"Saved: {comp_out}")
+
+    pdf_out = out.with_suffix(".pdf")
+    fig.savefig(pdf_out)
+    print(f"Saved: {pdf_out}")
+    if g_last_np is not None:
+        pdf_comp_out = comp_out.with_suffix(".pdf")
+        fig2.savefig(pdf_comp_out)
+        print(f"Saved: {pdf_comp_out}")
+
+    if args.store_data:
+        data_dir = Path(args.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"mc_gradients_multiarm__{args.tag}"
+        npz_path = data_dir / f"{stem}.npz"
+        json_path = data_dir / f"{stem}.json"
+        np.savez(
+            npz_path,
+            t=np.asarray(t_grid, dtype=np.int64),
+            abs_err=np.asarray(abs_err, dtype=np.float64),
+            rel_err=np.asarray(rel_err, dtype=np.float64),
+            g_exact=g_exact_np,
+            g_last=(g_last_np if g_last_np is not None else np.zeros_like(g_exact_np)),
+        )
+        metadata = {
+            "experiment": "mc_gradients_multiarm",
+            "tag": args.tag,
+            "setup": {
+                "N": int(args.N),
+                "k": float(args.k),
+                "num_arms": int(args.num_arms),
+                "reward_mode": args.reward_mode,
+                "prob_mode": args.prob_mode,
+                "a": args.a,
+                "seed": int(args.seed),
+                "t_grid": t_grid,
+            },
+            "artifacts": {
+                "plot_png": str(out),
+                "plot_pdf": str(pdf_out),
+                "components_png": str(comp_out) if g_last_np is not None else None,
+                "components_pdf": str(comp_out.with_suffix('.pdf')) if g_last_np is not None else None,
+                "data_npz": str(npz_path),
+            },
+        }
+        json_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved: {npz_path}")
+        print(f"Saved: {json_path}")
 
     if args.show:
         plt.show()
