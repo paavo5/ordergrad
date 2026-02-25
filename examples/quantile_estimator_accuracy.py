@@ -136,7 +136,9 @@ def main() -> None:
         f"methods={[m for m, _, _, _ in estimators]}, k_list={[k for _, k, _, _ in estimators]}"
     )
 
-    print("method\tk\tt_max\tmean\tabs_err\trel_err\trmse_single\trmse_mean_t\texact")
+    header_fmt = "{:<22} {:>10} {:>8} {:>14} {:>12} {:>12} {:>14} {:>14} {:>14}"
+    row_fmt = "{:<22} {:>10.6g} {:>8d} {:>14.8g} {:>12.3e} {:>12.3e} {:>14.3e} {:>14.3e} {:>14.8g}"
+    print(header_fmt.format("method", "k", "t_max", "mean", "abs_err", "rel_err", "rmse_single", "rmse_mean_t", "exact"))
 
     err_abs = {method: [] for method, _, _, _ in estimators}
     err_rel = {method: [] for method, _, _, _ in estimators}
@@ -176,9 +178,19 @@ def main() -> None:
     for method, _, _, _ in estimators:
         st = final_stats[method]
         print(
-            f"{method}\t{st['k']:.8g}\t{st['t_max']}\t{st['mean']:.8g}\t{st['abs_err']:.3e}\t"
-            f"{st['rel_err']:.3e}\t{st['rmse_single']:.3e}\t{st['rmse_mean_t']:.3e}\t{exact:.8g}"
+            row_fmt.format(
+                method,
+                st["k"],
+                st["t_max"],
+                st["mean"],
+                st["abs_err"],
+                st["rel_err"],
+                st["rmse_single"],
+                st["rmse_mean_t"],
+                exact,
+            )
         )
+
 
     fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.2))
     markers = ["o", "s", "^", "d", "x", "+", "v", "<", ">"]
