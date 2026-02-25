@@ -4,7 +4,7 @@ These scripts are intended as a hands-on playground for understanding and profil
 
 ## 1) Plot order weights
 
-`plot_order_weights.py` plots order-statistic weight curves over sorted rank `m`.
+`plot_order_weights.py` plots order-statistic weight curves over sorted rank `m` (while rank labels `j` are 1-based from top: `j=1` is highest).
 
 ### Features
 - `--mode unconditional`: plot `W[m,j]`.
@@ -54,7 +54,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
 - `--backend {np,jax,torch}` selects backend lazily (JAX/Torch imported only when requested).
 - `--num-arms` controls the size of the known `(r,p)` model used for comparison.
 - `--t-grid` is the number of independent repeated estimator runs to average.
-- `--a` sets L-stat weights (single value broadcast, comma list of length `floor(k)`, or preset string such as `TopM:3`).
+- `--a` sets L-stat weights (single value broadcast, comma list of length `floor(k)` in top-rank order (`j=1` highest), or preset string such as `TopM:3`).
 - Internally the script preweights using `with_lstat_weights(a)` so `L-advantage` uses the precomputed fast path even for default `a`.
 - Plots both **absolute** and **relative** error versus `t` for:
   - order-statistics,
@@ -62,7 +62,7 @@ python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 -
   - advantage,
   - L-advantage.
 - Optional `--plot-arm-details` saves an extra figure comparing exact vs estimated per-arm
-  inclusion/advantage (for rank selected by `--arm-rank`) and L-advantage at `t=max(t-grid)`.
+  inclusion/advantage (for estimator rank selected by `--arm-rank`, with `j=1` highest) and L-advantage at `t=max(t-grid)`.
 - Uses a buffered sampler (`--sample-buffer-size`) that pre-draws many arm indices at once,
   then serves per-batch requests from that buffer before refilling.
 

@@ -331,9 +331,9 @@ class OrderStatTransform:
                 raise ValueError(f"{name} does not take an m value")
             out = jnp.zeros((k,), dtype=dtype)
             if key == "remax":
-                return out.at[0].set(1.0)
-            if key == "remin":
                 return out.at[k - 1].set(1.0)
+            if key == "remin":
+                return out.at[0].set(1.0)
             if key == "median":
                 if k % 2 == 1:
                     return out.at[k // 2].set(1.0)
@@ -347,8 +347,9 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
-            a = (k + 1) * q
-            b = (k + 1) * (1.0 - q)
+            q_bottom = 1.0 - q
+            a = (k + 1) * q_bottom
+            b = (k + 1) * (1.0 - q_bottom)
             u_hi = jnp.arange(1, k + 1, dtype=dtype) / float(k)
             u_lo = jnp.arange(0, k, dtype=dtype) / float(k)
             return betainc(a, b, u_hi) - betainc(a, b, u_lo)
@@ -359,9 +360,11 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
+            # q is measured from the top; convert to bottom-quantile coordinates.
+            q_bottom = 1.0 - q
             # Interpolate between adjacent rank bins using rank centers
             # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q * k + 0.5
+            s_pos = q_bottom * k + 0.5
             out = jnp.zeros((k,), dtype=dtype)
             if s_pos <= 1.0:
                 return out.at[0].set(1.0)
@@ -378,7 +381,7 @@ class OrderStatTransform:
             if not (1 <= r <= k):
                 raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
             out = jnp.zeros((k,), dtype=dtype)
-            return out.at[r - 1].set(1.0)
+            return out.at[k - r].set(1.0)
 
         if key in {"uppertailmean", "lowertailmean"}:
             if not m_txt.strip():
@@ -389,8 +392,8 @@ class OrderStatTransform:
             m = max(1, int(math.ceil(q * k)))
             out = jnp.zeros((k,), dtype=dtype)
             if key == "uppertailmean":
-                return out.at[:m].set(1.0 / m)
-            return out.at[k - m :].set(1.0 / m)
+                return out.at[k - m :].set(1.0 / m)
+            return out.at[:m].set(1.0 / m)
 
         if key == "lmoment":
             if not m_txt.strip():
@@ -418,9 +421,9 @@ class OrderStatTransform:
 
         out = jnp.zeros((k,), dtype=dtype)
         if key == "topm":
-            out = out.at[:m].set(1.0 / m)
-        elif key == "botm":
             out = out.at[k - m :].set(1.0 / m)
+        elif key == "botm":
+            out = out.at[:m].set(1.0 / m)
         elif key in {"midrangem", "topbot"}:
             out = out.at[:m].set(0.5 / m)
             out = out.at[k - m :].add(0.5 / m)
@@ -446,7 +449,8 @@ class OrderStatTransform:
         a = jnp.asarray(a, dtype=self.W.dtype)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        return a
+        # Numeric vectors are provided in top-rank order (j=1 highest).
+        return a[::-1]
 
     def lstat_weight_by_rank(self, a: Optional[Any] = None) -> jnp.ndarray:
         if a is None:

@@ -119,10 +119,11 @@ def test_lstat_identities():
     E_inc = os.expected_orderstats_inclusion(x)
     E_loo = os.expected_orderstats_leave_one_out(x)
 
-    np.testing.assert_allclose(os.expected_lstat(x, a), float(E @ a), atol=1e-12, rtol=1e-12)
-    np.testing.assert_allclose(os.expected_lstat_inclusion(x, a), E_inc @ a, atol=1e-12, rtol=1e-12)
-    np.testing.assert_allclose(os.expected_lstat_leave_one_out(x, a), E_loo @ a, atol=1e-12, rtol=1e-12)
-    np.testing.assert_allclose(os.expected_lstat_advantage(x, a), (E_inc @ a) - (E_loo @ a), atol=1e-12, rtol=1e-12)
+    a_internal = a[::-1]
+    np.testing.assert_allclose(os.expected_lstat(x, a), float(E @ a_internal), atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os.expected_lstat_inclusion(x, a), E_inc @ a_internal, atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os.expected_lstat_leave_one_out(x, a), E_loo @ a_internal, atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os.expected_lstat_advantage(x, a), (E_inc @ a_internal) - (E_loo @ a_internal), atol=1e-12, rtol=1e-12)
 
 
 
@@ -150,7 +151,7 @@ def test_lstat_presets_match_manual_vectors():
         "Quantile:0.1": np.array([0.9, 0.1, 0, 0, 0, 0], dtype=np.float64),
         "UpperTailMean:0.25": np.array([0.5, 0.5, 0, 0, 0, 0], dtype=np.float64),
         "LowerTailMean:0.25": np.array([0, 0, 0, 0, 0.5, 0.5], dtype=np.float64),
-        "GiniMeanDifference": np.array([-1 / 3, -1 / 5, -1 / 15, 1 / 15, 1 / 5, 1 / 3], dtype=np.float64),
+        "GiniMeanDifference": np.array([1 / 3, 1 / 5, 1 / 15, -1 / 15, -1 / 5, -1 / 3], dtype=np.float64),
         "LMoment:1": np.ones((k,), dtype=np.float64) / k,
     }
 

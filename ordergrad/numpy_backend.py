@@ -415,9 +415,9 @@ class OrderStatTransform:
                 raise ValueError(f"{name} does not take an m value")
             out = np.zeros((k,), dtype=dtype)
             if key == "remax":
-                out[0] = 1.0
-            elif key == "remin":
                 out[k - 1] = 1.0
+            elif key == "remin":
+                out[0] = 1.0
             elif key == "median":
                 if k % 2 == 1:
                     out[k // 2] = 1.0
@@ -433,7 +433,8 @@ class OrderStatTransform:
             if not m_txt.strip():
                 raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
             q = float(m_txt)
-            return _harrell_davis_weights(k, q, dtype=dtype)
+            # q is defined from the top (q=0 means top extreme). Convert to bottom-quantile.
+            return _harrell_davis_weights(k, 1.0 - q, dtype=dtype)
 
         if key == "quantile":
             if not m_txt.strip():
@@ -441,9 +442,11 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
+            # q is measured from the top; convert to bottom-quantile coordinates.
+            q_bottom = 1.0 - q
             # Interpolate between adjacent rank bins using rank centers
             # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q * k + 0.5
+            s_pos = q_bottom * k + 0.5
             out = np.zeros((k,), dtype=dtype)
             if s_pos <= 1.0:
                 out[0] = 1.0
@@ -463,7 +466,7 @@ class OrderStatTransform:
             if not (1 <= r <= k):
                 raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
             out = np.zeros((k,), dtype=dtype)
-            out[r - 1] = 1.0
+            out[k - r] = 1.0
             return out
 
         if key in {"uppertailmean", "lowertailmean"}:
@@ -475,9 +478,9 @@ class OrderStatTransform:
             m = max(1, int(math.ceil(q * k)))
             out = np.zeros((k,), dtype=dtype)
             if key == "uppertailmean":
-                out[:m] = 1.0 / m
-            else:
                 out[k - m :] = 1.0 / m
+            else:
+                out[:m] = 1.0 / m
             return out
 
         if key == "lmoment":
@@ -494,9 +497,9 @@ class OrderStatTransform:
 
         out = np.zeros((k,), dtype=dtype)
         if key == "topm":
-            out[:m] = 1.0 / m
-        elif key == "botm":
             out[k - m :] = 1.0 / m
+        elif key == "botm":
+            out[:m] = 1.0 / m
         elif key in {"midrangem", "topbot"}:
             out[:m] = 0.5 / m
             out[k - m :] += 0.5 / m
@@ -525,7 +528,8 @@ class OrderStatTransform:
         a = np.asarray(a, dtype=dtype)
         if a.shape != (k,):
             raise ValueError(f"a must be shape ({k},)")
-        return a
+        # Numeric vectors are provided in top-rank order (j=1 highest).
+        return a[::-1].copy()
 
     @classmethod
     def precompute(

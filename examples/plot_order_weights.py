@@ -89,7 +89,7 @@ def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
             raise SystemExit(
                 f"When --ranks=0, numeric --a must provide exactly floor(k)={k_ord} values or use a preset string."
             )
-        return np.asarray(vals, dtype=np.float64)
+        return np.asarray(vals, dtype=np.float64)[::-1].copy()
 
     if len(vals) == 1:
         vals = vals * len(ranks)
@@ -98,7 +98,7 @@ def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
 
     a = np.zeros(k_ord, dtype=np.float64)
     for j, w in zip(ranks, vals):
-        a[j - 1] = w
+        a[k_ord - j] = w
     return a
 
 
@@ -139,7 +139,7 @@ def main() -> None:
         "--ranks",
         type=str,
         default="1,5,10,15,20",
-        help="Comma-separated ranks/ranges (1-based), e.g. 1,3..6,10. Use 0 to disable individual-rank curves.",
+        help="Comma-separated ranks/ranges (1-based from top, so j=1 is highest), e.g. 1,3..6,10. Use 0 to disable individual-rank curves.",
     )
     parser.add_argument(
         "--a",
@@ -215,7 +215,8 @@ def main() -> None:
                         label = f"j={j}"
                     else:
                         label = f"k={k:g}, j={j}"
-                    ax.plot(m, W[:, j - 1], label=label)
+                    col = k_ord - j
+                    ax.plot(m, W[:, col], label=label)
 
         title = f"Unconditional order-stat weights (N={args.N})"
         if len(set(k_values)) == 1:
@@ -259,12 +260,13 @@ def main() -> None:
         for j in ranks:
             if j > k_ord:
                 raise SystemExit(f"Rank j={j} is invalid for k={k} (floor(k)={k_ord}).")
-            ax.plot(m, W_cond[:, j - 1], label=f"cond j={j}")
-            ax.plot(m, W[:, j - 1], linestyle=":", alpha=0.8, label=f"uncond j={j}")
+            col = k_ord - j
+            ax.plot(m, W_cond[:, col], label=f"cond j={j}")
+            ax.plot(m, W[:, col], linestyle=":", alpha=0.8, label=f"uncond j={j}")
             if W_loo is not None:
-                ax.plot(m, W_loo[:, j - 1], linestyle="-.", alpha=0.9, label=f"loo-excl j={j}")
+                ax.plot(m, W_loo[:, col], linestyle="-.", alpha=0.9, label=f"loo-excl j={j}")
             if args.show_delta:
-                ax.plot(m, W_cond[:, j - 1] - W[:, j - 1], linestyle="--", alpha=0.9, label=f"delta j={j}")
+                ax.plot(m, W_cond[:, col] - W[:, col], linestyle="--", alpha=0.9, label=f"delta j={j}")
 
         for _, spec_label, a_vec in a_pairs:
             w_rank_cond = W_cond @ a_vec

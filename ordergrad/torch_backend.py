@@ -425,9 +425,9 @@ class OrderStatTransform:
                 raise ValueError(f"{name} does not take an m value")
             out = torch.zeros((k,), dtype=dtype, device=device)
             if key == "remax":
-                out[0] = 1.0
-            elif key == "remin":
                 out[k - 1] = 1.0
+            elif key == "remin":
+                out[0] = 1.0
             elif key == "median":
                 if k % 2 == 1:
                     out[k // 2] = 1.0
@@ -445,8 +445,9 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
-            aa = (k + 1) * q
-            bb = (k + 1) * (1.0 - q)
+            q_bottom = 1.0 - q
+            aa = (k + 1) * q_bottom
+            bb = (k + 1) * (1.0 - q_bottom)
             u_hi = torch.arange(1, k + 1, dtype=torch.float64, device=device) / float(k)
             u_lo = torch.arange(0, k, dtype=torch.float64, device=device) / float(k)
             w = [
@@ -462,9 +463,11 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
+            # q is measured from the top; convert to bottom-quantile coordinates.
+            q_bottom = 1.0 - q
             # Interpolate between adjacent rank bins using rank centers
             # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q * k + 0.5
+            s_pos = q_bottom * k + 0.5
             out = torch.zeros((k,), dtype=dtype, device=device)
             if s_pos <= 1.0:
                 out[0] = 1.0
@@ -484,7 +487,7 @@ class OrderStatTransform:
             if not (1 <= r <= k):
                 raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
             out = torch.zeros((k,), dtype=dtype, device=device)
-            out[r - 1] = 1.0
+            out[k - r] = 1.0
             return out
 
         if key in {"uppertailmean", "lowertailmean"}:
@@ -496,9 +499,9 @@ class OrderStatTransform:
             m = max(1, int(math.ceil(q * k)))
             out = torch.zeros((k,), dtype=dtype, device=device)
             if key == "uppertailmean":
-                out[:m] = 1.0 / m
-            else:
                 out[k - m :] = 1.0 / m
+            else:
+                out[:m] = 1.0 / m
             return out
 
         if key == "lmoment":
@@ -527,9 +530,9 @@ class OrderStatTransform:
 
         out = torch.zeros((k,), dtype=dtype, device=device)
         if key == "topm":
-            out[:m] = 1.0 / m
-        elif key == "botm":
             out[k - m :] = 1.0 / m
+        elif key == "botm":
+            out[:m] = 1.0 / m
         elif key in {"midrangem", "topbot"}:
             out[:m] = 0.5 / m
             out[k - m :] += 0.5 / m
@@ -555,7 +558,8 @@ class OrderStatTransform:
         a = torch.as_tensor(a, dtype=self.W.dtype, device=self.W.device)
         if a.shape != (self.k,):
             raise ValueError(f"a must be shape ({self.k},)")
-        return a
+        # Numeric vectors are provided in top-rank order (j=1 highest).
+        return torch.flip(a, dims=(0,))
 
     def lstat_weight_by_rank(self, a: Optional[Any] = None) -> torch.Tensor:
         if a is None:

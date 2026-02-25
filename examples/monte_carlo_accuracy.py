@@ -143,7 +143,9 @@ def _parse_a(spec: str | None, k_ord: int):
         vals = vals * k_ord
     elif len(vals) != k_ord:
         raise SystemExit(f"--a must have either 1 value, exactly floor(k)={k_ord} values, or a preset string.")
-    return np.asarray(vals, dtype=np.float64)
+    # Numeric vectors are interpreted in top-rank order (j=1 highest),
+    # so reverse to internal ascending order.
+    return np.asarray(vals, dtype=np.float64)[::-1].copy()
 
 
 def _mean_abs_and_rel_error(est: np.ndarray, exact: np.ndarray, eps: float = 1e-12) -> tuple[float, float]:
@@ -158,7 +160,7 @@ def main() -> None:
     ap.add_argument("--N", type=int, default=64, help="Batch size per estimator evaluation.")
     ap.add_argument("--k", type=float, default=6.0, help="Estimator k parameter (can be real).")
     ap.add_argument("--num-arms", type=int, default=6, help="Number of arms in the known-(r,p) model.")
-    ap.add_argument("--a", type=str, default=None, help="L-stat weights: single value (broadcast), comma-separated floor(k)-vector, or preset string (e.g. TopM:3).")
+    ap.add_argument("--a", type=str, default=None, help="L-stat weights: single value (broadcast), comma-separated floor(k)-vector in top-rank order (j=1 highest), or preset string (e.g. TopM:3).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000, help="Number of arm indices to pre-sample per buffer refill.")
     ap.add_argument(
@@ -167,7 +169,7 @@ def main() -> None:
         default="1,2,5,10,20,50,100,200,500",
         help="Comma-separated repetition counts t (number of independent estimator batches to average).",
     )
-    ap.add_argument("--arm-rank", type=int, default=1, help="1-based estimator rank j used in arm-detail plots.")
+    ap.add_argument("--arm-rank", type=int, default=1, help="1-based estimator rank j from top used in arm-detail plots (j=1 is highest order-stat).")
     ap.add_argument("--plot-arm-details", action="store_true", help="Also save arm-wise exact vs estimate plots at max(t-grid).")
     ap.add_argument("--output", type=str, default="examples/artifacts/mc_error_curve.png")
     ap.add_argument("--show", action="store_true")
@@ -332,7 +334,7 @@ def main() -> None:
     print(f"Saved error curves: {out}")
 
     if args.plot_arm_details and last_inc_est_by_arm is not None and last_adv_est_by_arm is not None and last_ladv_est_by_arm is not None:
-        rank_idx = args.arm_rank - 1
+        rank_idx = k_ord - args.arm_rank
         arms = np.arange(m)
         fig2, axes2 = plt.subplots(1, 3, figsize=(15, 4.8))
 

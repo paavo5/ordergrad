@@ -58,7 +58,7 @@ def _parse_a(spec: str | None, k_ord: int, torch_mod: Any, *, device, dtype):
         vals = vals * k_ord
     elif len(vals) != k_ord:
         raise SystemExit(f"--a must have 1 value, exactly floor(k)={k_ord} values, or a preset string.")
-    return torch_mod.tensor(vals, dtype=dtype, device=device)
+    return torch_mod.tensor(vals, dtype=dtype, device=device).flip(0)
 
 
 def _parse_k_grid(spec: str) -> list[float]:

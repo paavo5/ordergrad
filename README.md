@@ -202,20 +202,20 @@ Each backend exposes `OrderStatTransform` with:
   - `expected_lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
-  - `a` can be either a numeric vector of shape `(floor(k),)` or a preset string:
-    - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is top rank)
+  - `a` can be either a numeric vector of shape `(floor(k),)` interpreted in top-rank order (`j=1` highest), or a preset string:
+    - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is highest rank)
     - `"BotM:m"`: equal weight on bottom `m` ranks (largest `j` ranks)
     - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
     - `"WinsorizedM:m"`: winsorized mean (replace bottom/top `m` values by the next interior values)
     - `"MidrangeM:m"` / `"TopBot:m"`: average of bottom-`m` mean and top-`m` mean
-    - `"ReMax"`: top-1 only (`j=1`)
-    - `"ReMin"`: bottom-1 only (`j=floor(k)`)
+    - `"ReMax"`: top-1 only (`j=1`, largest value)
+    - `"ReMin"`: bottom-1 only (`j=floor(k)`, smallest value)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
     - `"Rank:r"`: place all mass on explicit 1-based rank `r`
-    - `"Quantile:q"`: interpolate between adjacent ranks based on quantile `q` using rank-center interpolation (`q=0 -> j=1`, `q=1 -> j=floor(k)`; boundaries split mass across neighbors).
+    - `"Quantile:q"`: interpolate between adjacent ranks based on top-quantile `q` using rank-center interpolation (`q=0 -> j=1` top, `q=1 -> j=floor(k)` bottom; boundaries split mass across neighbors).
     - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)
-    - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at quantile `q in [0,1]`
+    - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at top-quantile `q in [0,1]`
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
     - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
 - known-`(r,p)` order-stat methods:
