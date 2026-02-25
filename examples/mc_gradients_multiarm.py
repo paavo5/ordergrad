@@ -56,6 +56,17 @@ def _safe_for_logplot(vals, eps: float = 1e-16):
     return out
 
 
+
+def _make_rewards(m: int, mode: str, *, device, dtype) -> torch.Tensor:
+    mode = str(mode).strip().lower()
+    if mode == "gaussian":
+        return torch.sort(torch.randn(m, dtype=dtype, device=device))[0]
+    if mode in {"linear", "arange"}:
+        return torch.arange(m, dtype=dtype, device=device)
+    if mode in {"exp", "pow2", "2^m"}:
+        return torch.pow(torch.tensor(2.0, dtype=dtype, device=device), torch.arange(m, dtype=dtype, device=device))
+    raise SystemExit("--reward-mode must be one of: gaussian, linear, exp")
+
 def _parse_a(spec: str | None, k_ord: int, *, device, dtype):
     if spec is None:
         return torch.linspace(0.3, 1.0, steps=k_ord, dtype=dtype, device=device)
@@ -77,6 +88,7 @@ def main() -> None:
     ap.add_argument("--N", type=int, default=64)
     ap.add_argument("--k", type=float, default=6.0)
     ap.add_argument("--num-arms", type=int, default=6)
+    ap.add_argument("--reward-mode", type=str, default="gaussian", choices=["gaussian", "linear", "exp"], help="How arm rewards are generated: gaussian (fixed random), linear (arange), exp (2**m).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample-buffer-size", type=int, default=200_000)
     ap.add_argument("--a", type=str, default=None)
@@ -107,7 +119,7 @@ def main() -> None:
     if k_ord < 1:
         raise SystemExit("Need floor(k) >= 1")
 
-    r = torch.sort(torch.randn(m, dtype=dtype, device=device))[0]
+    r = _make_rewards(m, args.reward_mode, device=device, dtype=dtype)
     theta = torch.randn(m, dtype=dtype, device=device, requires_grad=True)
     p = torch.softmax(theta, dim=0)
     a = _parse_a(args.a, k_ord, device=device, dtype=dtype)
