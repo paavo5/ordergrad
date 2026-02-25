@@ -3,6 +3,9 @@
 
 For each estimator and each repetition count t, the script averages t independent
 batch estimates and compares that average to the exact population quantile.
+
+Quantile notation here follows the library convention: q is measured from the top
+(q=0 is the top extreme, q=1 is the bottom extreme).
 """
 
 from __future__ import annotations
@@ -44,11 +47,13 @@ def _draw_batch(rng: np.random.Generator, n: int, dist: str) -> np.ndarray:
     raise RuntimeError(f"Unsupported dist: {dist}")
 
 
-def _exact_quantile(q: float, dist: str) -> float:
+def _exact_quantile(q_top: float, dist: str) -> float:
+    # Library convention: q is a top-quantile. Convert to bottom-CDF quantile.
+    q_bottom = 1.0 - float(q_top)
     if dist == "uniform":
-        return float(q)
+        return float(q_bottom)
     if dist == "gaussian":
-        return float(NormalDist(mu=0.0, sigma=1.0).inv_cdf(q))
+        return float(NormalDist(mu=0.0, sigma=1.0).inv_cdf(q_bottom))
     raise RuntimeError(f"Unsupported dist: {dist}")
 
 
@@ -66,7 +71,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Compare Quantile:q and HarrellDavis:q MC accuracy vs repetitions t.")
     ap.add_argument("--N", type=int, default=64, help="Batch size per estimator evaluation.")
     ap.add_argument("--k-list", type=str, default="6", help="Comma-separated k values for estimators in order Quantile,HarrellDavis (one value broadcasts).")
-    ap.add_argument("--quantile", type=float, default=0.25, help="Target quantile q in [0,1].")
+    ap.add_argument("--quantile", type=float, default=0.25, help="Target top-quantile q in [0,1] (q=0 is top extreme, q=1 is bottom extreme).")
     ap.add_argument("--dist", type=str, default="uniform", choices=["uniform", "gaussian"], help="Sampling distribution for rewards.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--t-grid", type=str, default="1,2,5,10,20,50,100,200,500", help="Comma-separated repetition counts t.")
@@ -100,6 +105,12 @@ def main() -> None:
 
     exact = _exact_quantile(q, args.dist)
 
+    print(
+        f"Quantile convention: q is from top (q={q}), exact target={exact:.8g}, dist={args.dist}, "
+        f"k_quantile={k_quantile:g}, k_hd={k_hd:g}"
+    )
+    print("t	QuantileMean	HarrellDavisMean	Exact	AbsErrQ	AbsErrHD")
+
     q_abs_err, q_rel_err = [], []
     hd_abs_err, hd_rel_err = [], []
 
@@ -126,6 +137,8 @@ def main() -> None:
         hd_abs_err.append(hd_abs)
         q_rel_err.append(q_rel)
         hd_rel_err.append(hd_rel)
+
+        print(f"{t}	{q_mean:.8g}	{hd_mean:.8g}	{exact:.8g}	{q_abs:.3e}	{hd_abs:.3e}")
 
     fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.2))
 

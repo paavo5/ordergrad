@@ -154,10 +154,11 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 
 ### Features
 - Supports `--dist uniform` and `--dist gaussian` with exact quantiles computed analytically.
-- Uses `--quantile q` and applies it to both estimators automatically.
+- Uses `--quantile q` (top-quantile convention: `q=0` top extreme, `q=1` bottom extreme) and applies it to both estimators automatically.
 - Supports separate k values per estimator using `--k-list` in order
   `Quantile,HarrellDavis` (one value broadcasts to both).
 - Plots absolute and relative error vs number of repetitions `t`.
+- Also prints per-`t` estimator means for Quantile and HarrellDavis alongside the exact target.
 
 ```bash
 python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6
