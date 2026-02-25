@@ -149,20 +149,19 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 
 ## 8) Quantile estimator accuracy (Quantile:q vs HarrellDavis:q)
 
-`quantile_estimator_accuracy.py` compares Monte Carlo convergence of
-`Quantile:q` and `HarrellDavis:q` against the exact population quantile (standard mass-below convention).
+`quantile_estimator_accuracy.py` compares Monte Carlo convergence of quantile-style presets against the exact population quantile (standard mass-below convention).
 
 ### Features
 - Supports `--dist uniform` and `--dist gaussian` with exact quantiles computed analytically.
-- Uses `--quantile q` (quantile convention: `q` mass below the threshold) and applies it to both estimators automatically.
-- Supports separate k values per estimator using `--k-list` in order
-  `Quantile,HarrellDavis` (one value broadcasts to both).
+- Uses `--quantile q` (quantile convention: `q` mass below the threshold) and applies it to every method.
+- Choose methods with `--a` as a comma-separated list restricted to quantile-style methods (`Quantile*` variants and `HarrellDavis`).
+- Supports separate k values per method using `--k-list` (one value broadcasts).
 - Plots absolute and relative error vs number of repetitions `t`.
 - Also prints per-`t` estimator means for Quantile and HarrellDavis alongside the exact target, plus RMSE-based error estimates that include variance (single-estimate RMSE and RMSE for the mean of `t` runs).
 
 ```bash
-python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6
-python examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.9 --N 128 --k-list 6,12 --t-grid 1,2,5,10,20,50,100,200
+python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --a Quantile,HarrellDavis --k-list 6
+python examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.9 --N 128 --a QuantileHazen,QuantileBlom,HarrellDavis --k-list 6,6,12 --t-grid 1,2,5,10,20,50,100,200
 ```
 
 
