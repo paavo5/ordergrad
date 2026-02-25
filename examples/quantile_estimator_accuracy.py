@@ -4,8 +4,8 @@
 For each estimator and each repetition count t, the script averages t independent
 batch estimates and compares that average to the exact population quantile.
 
-Quantile notation here follows the library convention: q is measured from the top
-(q=0 is the top extreme, q=1 is the bottom extreme).
+Quantile notation here follows the standard CDF convention: q is the
+fraction of mass below the quantile.
 """
 
 from __future__ import annotations
@@ -47,13 +47,11 @@ def _draw_batch(rng: np.random.Generator, n: int, dist: str) -> np.ndarray:
     raise RuntimeError(f"Unsupported dist: {dist}")
 
 
-def _exact_quantile(q_top: float, dist: str) -> float:
-    # Library convention: q is a top-quantile. Convert to bottom-CDF quantile.
-    q_bottom = 1.0 - float(q_top)
+def _exact_quantile(q: float, dist: str) -> float:
     if dist == "uniform":
-        return float(q_bottom)
+        return float(q)
     if dist == "gaussian":
-        return float(NormalDist(mu=0.0, sigma=1.0).inv_cdf(q_bottom))
+        return float(NormalDist(mu=0.0, sigma=1.0).inv_cdf(q))
     raise RuntimeError(f"Unsupported dist: {dist}")
 
 
@@ -71,7 +69,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Compare Quantile:q and HarrellDavis:q MC accuracy vs repetitions t.")
     ap.add_argument("--N", type=int, default=64, help="Batch size per estimator evaluation.")
     ap.add_argument("--k-list", type=str, default="6", help="Comma-separated k values for estimators in order Quantile,HarrellDavis (one value broadcasts).")
-    ap.add_argument("--quantile", type=float, default=0.25, help="Target top-quantile q in [0,1] (q=0 is top extreme, q=1 is bottom extreme).")
+    ap.add_argument("--quantile", type=float, default=0.25, help="Target quantile q in [0,1] (q mass below the threshold).")
     ap.add_argument("--dist", type=str, default="uniform", choices=["uniform", "gaussian"], help="Sampling distribution for rewards.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--t-grid", type=str, default="1,2,5,10,20,50,100,200,500", help="Comma-separated repetition counts t.")
@@ -106,7 +104,7 @@ def main() -> None:
     exact = _exact_quantile(q, args.dist)
 
     print(
-        f"Quantile convention: q is from top (q={q}), exact target={exact:.8g}, dist={args.dist}, "
+        f"Quantile convention: q is mass-below (q={q}), exact target={exact:.8g}, dist={args.dist}, "
         f"k_quantile={k_quantile:g}, k_hd={k_hd:g}"
     )
     print("t	QuantileMean	HarrellDavisMean	Exact	AbsErrQ	AbsErrHD")

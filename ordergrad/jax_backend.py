@@ -347,24 +347,24 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
-            q_bottom = 1.0 - q
-            a = (k + 1) * q_bottom
-            b = (k + 1) * (1.0 - q_bottom)
+            a = (k + 1) * q
+            b = (k + 1) * (1.0 - q)
             u_hi = jnp.arange(1, k + 1, dtype=dtype) / float(k)
             u_lo = jnp.arange(0, k, dtype=dtype) / float(k)
             return betainc(a, b, u_hi) - betainc(a, b, u_lo)
 
-        if key == "quantile":
+        if key in {"quantile", "topquantile"}:
             if not m_txt.strip():
-                raise ValueError("Preset 'Quantile' requires ':q' (e.g. Quantile:0.25)")
+                raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
-                raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
-            # q is measured from the top; convert to bottom-quantile coordinates.
-            q_bottom = 1.0 - q
+                raise ValueError(f"{name}:q requires 0 <= q <= 1 (got q={q})")
+            # Quantile:q uses standard CDF convention (q mass below threshold).
+            # TopQuantile:q uses top-tail convention (q mass above threshold).
+            q_eff = q if key == "quantile" else (1.0 - q)
             # Interpolate between adjacent rank bins using rank centers
             # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q_bottom * k + 0.5
+            s_pos = q_eff * k + 0.5
             out = jnp.zeros((k,), dtype=dtype)
             if s_pos <= 1.0:
                 return out.at[0].set(1.0)
@@ -439,7 +439,7 @@ class OrderStatTransform:
             out = out.at[m : k - m].set(1.0 / (k - 2 * m))
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, TopQuantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 

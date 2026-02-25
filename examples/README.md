@@ -150,11 +150,11 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 ## 8) Quantile estimator accuracy (Quantile:q vs HarrellDavis:q)
 
 `quantile_estimator_accuracy.py` compares Monte Carlo convergence of
-`Quantile:q` and `HarrellDavis:q` against the exact population quantile.
+`Quantile:q` and `HarrellDavis:q` against the exact population quantile (standard mass-below convention).
 
 ### Features
 - Supports `--dist uniform` and `--dist gaussian` with exact quantiles computed analytically.
-- Uses `--quantile q` (top-quantile convention: `q=0` top extreme, `q=1` bottom extreme) and applies it to both estimators automatically.
+- Uses `--quantile q` (quantile convention: `q` mass below the threshold) and applies it to both estimators automatically.
 - Supports separate k values per estimator using `--k-list` in order
   `Quantile,HarrellDavis` (one value broadcasts to both).
 - Plots absolute and relative error vs number of repetitions `t`.

@@ -445,9 +445,8 @@ class OrderStatTransform:
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
                 raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
-            q_bottom = 1.0 - q
-            aa = (k + 1) * q_bottom
-            bb = (k + 1) * (1.0 - q_bottom)
+            aa = (k + 1) * q
+            bb = (k + 1) * (1.0 - q)
             u_hi = torch.arange(1, k + 1, dtype=torch.float64, device=device) / float(k)
             u_lo = torch.arange(0, k, dtype=torch.float64, device=device) / float(k)
             w = [
@@ -457,17 +456,18 @@ class OrderStatTransform:
             ]
             return torch.as_tensor(w, dtype=dtype, device=device)
 
-        if key == "quantile":
+        if key in {"quantile", "topquantile"}:
             if not m_txt.strip():
-                raise ValueError("Preset 'Quantile' requires ':q' (e.g. Quantile:0.25)")
+                raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
             q = float(m_txt)
             if not (0.0 <= q <= 1.0):
-                raise ValueError(f"Quantile:q requires 0 <= q <= 1 (got q={q})")
-            # q is measured from the top; convert to bottom-quantile coordinates.
-            q_bottom = 1.0 - q
+                raise ValueError(f"{name}:q requires 0 <= q <= 1 (got q={q})")
+            # Quantile:q uses standard CDF convention (q mass below threshold).
+            # TopQuantile:q uses top-tail convention (q mass above threshold).
+            q_eff = q if key == "quantile" else (1.0 - q)
             # Interpolate between adjacent rank bins using rank centers
             # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q_bottom * k + 0.5
+            s_pos = q_eff * k + 0.5
             out = torch.zeros((k,), dtype=dtype, device=device)
             if s_pos <= 1.0:
                 out[0] = 1.0
@@ -548,7 +548,7 @@ class OrderStatTransform:
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, TopQuantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
