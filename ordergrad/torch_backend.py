@@ -467,6 +467,16 @@ class OrderStatTransform:
             out[idx] = 1.0
             return out
 
+        if key == "rank":
+            if not m_txt.strip():
+                raise ValueError("Preset 'Rank' requires ':r' (e.g. Rank:3)")
+            r = int(m_txt)
+            if not (1 <= r <= k):
+                raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
+            out = torch.zeros((k,), dtype=dtype, device=device)
+            out[r - 1] = 1.0
+            return out
+
         if key in {"uppertailmean", "lowertailmean"}:
             if not m_txt.strip():
                 raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
@@ -525,7 +535,7 @@ class OrderStatTransform:
             out[m : k - m] = 1.0 / (k - 2 * m)
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 

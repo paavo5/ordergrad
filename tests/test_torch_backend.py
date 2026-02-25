@@ -321,6 +321,17 @@ def test_torch_quantile_preset_matches_numpy_reference():
 
 
 @pytest.mark.torch
+def test_torch_rank_preset_matches_numpy_reference():
+    k = 6
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    w_np = os_np._preset_lstat_weights(k, "Rank:3", dtype=np.float64)
+    w_th = os_th._preset_lstat_weights(k, "Rank:3", dtype=torch.float64, device=torch.device("cpu"))
+    np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
 def test_torch_tailmean_presets_match_numpy_reference():
     k = 6
     os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)

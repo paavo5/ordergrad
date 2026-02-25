@@ -143,6 +143,7 @@ def test_lstat_presets_match_manual_vectors():
         "ReMax": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
         "ReMin": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "Median": np.array([0, 0, 0.5, 0.5, 0, 0], dtype=np.float64),
+        "Rank:3": np.array([0, 0, 1, 0, 0, 0], dtype=np.float64),
         "Quantile:0": np.array([1, 0, 0, 0, 0, 0], dtype=np.float64),
         "Quantile:1": np.array([0, 0, 0, 0, 0, 1], dtype=np.float64),
         "Quantile:0.25": np.array([0, 1, 0, 0, 0, 0], dtype=np.float64),
@@ -215,6 +216,8 @@ def test_lstat_preset_validation_errors():
         os.expected_lstat(np.arange(10, dtype=np.float64), "HarrellDavis")
     with pytest.raises(ValueError, match="requires ':q'"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "Quantile")
+    with pytest.raises(ValueError, match="requires ':r'"):
+        os.expected_lstat(np.arange(10, dtype=np.float64), "Rank")
     with pytest.raises(ValueError, match="requires ':q'"):
         os.expected_lstat(np.arange(10, dtype=np.float64), "UpperTailMean")
     with pytest.raises(ValueError, match="requires ':q'"):

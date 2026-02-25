@@ -125,7 +125,7 @@ l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 
 # Preset shorthands are also supported for a:
 #   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m", "TopBot:m",
-#   "ReMax", "ReMin", "Median", "Quantile:q", "UpperTailMean:q", "LowerTailMean:q", "HarrellDavis:q",
+#   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "UpperTailMean:q", "LowerTailMean:q", "HarrellDavis:q",
 #   "GiniMeanDifference" (or "GMD"), "LMoment:r"
 l_top2 = os.expected_lstat(x, "TopM:2")
 ```
@@ -211,6 +211,7 @@ Each backend exposes `OrderStatTransform` with:
     - `"ReMax"`: top-1 only (`j=1`)
     - `"ReMin"`: bottom-1 only (`j=floor(k)`)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
+    - `"Rank:r"`: place all mass on explicit 1-based rank `r`
     - `"Quantile:q"`: place all mass on the rank nearest quantile `q` (`q=0 -> j=1`, `q=1 -> j=floor(k)`)
     - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)

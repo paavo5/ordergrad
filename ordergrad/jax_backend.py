@@ -363,6 +363,15 @@ class OrderStatTransform:
             out = jnp.zeros((k,), dtype=dtype)
             return out.at[idx].set(1.0)
 
+        if key == "rank":
+            if not m_txt.strip():
+                raise ValueError("Preset 'Rank' requires ':r' (e.g. Rank:3)")
+            r = int(m_txt)
+            if not (1 <= r <= k):
+                raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
+            out = jnp.zeros((k,), dtype=dtype)
+            return out.at[r - 1].set(1.0)
+
         if key in {"uppertailmean", "lowertailmean"}:
             if not m_txt.strip():
                 raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
@@ -419,7 +428,7 @@ class OrderStatTransform:
             out = out.at[m : k - m].set(1.0 / (k - 2 * m))
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
