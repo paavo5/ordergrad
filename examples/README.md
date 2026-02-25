@@ -158,7 +158,7 @@ python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-m
 - Supports separate k values per estimator using `--k-list` in order
   `Quantile,HarrellDavis` (one value broadcasts to both).
 - Plots absolute and relative error vs number of repetitions `t`.
-- Also prints per-`t` estimator means for Quantile and HarrellDavis alongside the exact target.
+- Also prints per-`t` estimator means for Quantile and HarrellDavis alongside the exact target, plus RMSE-based error estimates that include variance (single-estimate RMSE and RMSE for the mean of `t` runs).
 
 ```bash
 python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6

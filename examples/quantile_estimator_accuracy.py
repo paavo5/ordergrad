@@ -107,7 +107,7 @@ def main() -> None:
         f"Quantile convention: q is mass-below (q={q}), exact target={exact:.8g}, dist={args.dist}, "
         f"k_quantile={k_quantile:g}, k_hd={k_hd:g}"
     )
-    print("t	QuantileMean	HarrellDavisMean	Exact	AbsErrQ	AbsErrHD")
+    print("t	QuantileMean	HarrellDavisMean	Exact	AbsErrQ	AbsErrHD	RMSE_Q(single)	RMSE_HD(single)	RMSE_Q(mean_t)	RMSE_HD(mean_t)")
 
     q_abs_err, q_rel_err = [], []
     hd_abs_err, hd_rel_err = [], []
@@ -131,12 +131,25 @@ def main() -> None:
         q_rel = q_abs / denom
         hd_rel = hd_abs / denom
 
+        # Variance-aware error magnitudes:
+        # - RMSE(single): expected error scale for one batch estimate at fixed (N,k)
+        # - RMSE(mean_t): expected error scale for average of t batches
+        q_rmse_single = float(np.sqrt(np.mean((q_vals - exact) ** 2)))
+        hd_rmse_single = float(np.sqrt(np.mean((hd_vals - exact) ** 2)))
+        q_var = float(np.var(q_vals, ddof=1)) if t > 1 else 0.0
+        hd_var = float(np.var(hd_vals, ddof=1)) if t > 1 else 0.0
+        q_rmse_mean_t = float(np.sqrt(q_var / float(t) + (q_mean - exact) ** 2))
+        hd_rmse_mean_t = float(np.sqrt(hd_var / float(t) + (hd_mean - exact) ** 2))
+
         q_abs_err.append(q_abs)
         hd_abs_err.append(hd_abs)
         q_rel_err.append(q_rel)
         hd_rel_err.append(hd_rel)
 
-        print(f"{t}	{q_mean:.8g}	{hd_mean:.8g}	{exact:.8g}	{q_abs:.3e}	{hd_abs:.3e}")
+        print(
+            f"{t}\t{q_mean:.8g}\t{hd_mean:.8g}\t{exact:.8g}\t{q_abs:.3e}\t{hd_abs:.3e}\t"
+            f"{q_rmse_single:.3e}\t{hd_rmse_single:.3e}\t{q_rmse_mean_t:.3e}\t{hd_rmse_mean_t:.3e}"
+        )
 
     fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.2))
 
