@@ -465,19 +465,20 @@ class OrderStatTransform:
             # Quantile:q uses standard CDF convention (q mass below threshold).
             # TopQuantile:q uses top-tail convention (q mass above threshold).
             q_eff = q if key == "quantile" else (1.0 - q)
-            # Interpolate between adjacent rank bins using rank centers
-            # c_j = (j - 0.5) / k so boundaries split mass across neighbors.
-            s_pos = q_eff * k + 0.5
+            # Use edge-based plotting positions with k+1 bins:
+            # order-stat i (ascending, 1..k) sits at q_i = i/(k+1).
+            # Interpolate linearly between neighboring edges.
             out = torch.zeros((k,), dtype=dtype, device=device)
-            if s_pos <= 1.0:
+            pos = q_eff * (k + 1)
+            if pos <= 1.0:
                 out[0] = 1.0
-            elif s_pos >= float(k):
+            elif pos >= float(k):
                 out[k - 1] = 1.0
             else:
-                left = int(math.floor(s_pos))
-                frac = s_pos - float(left)
-                out[left - 1] = 1.0 - frac
-                out[left] = frac
+                i_left = int(math.floor(pos))
+                frac = pos - float(i_left)
+                out[i_left - 1] = 1.0 - frac
+                out[i_left] = frac
             return out
 
         if key == "rank":
