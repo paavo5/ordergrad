@@ -234,6 +234,7 @@ python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --outp
 `plot_reward_cdf_quantile.py` computes **all expected order statistics** for one `k`, converts rank positions to plotting probabilities for selected quantile conventions, builds a linear interpolation, and compares the induced CDF curve to the true CDF.
 
 - Distribution choice via `--dist {uniform,gaussian,gaussian_mixture}`.
+- For `gaussian_mixture`, use intuitive comma-separated component parameters: `--mix-centers`, `--mix-scales`, `--mix-weights`.
 - Estimator choice via `--estimator` (comma-separated list from `Quantile`, `QuantileHazen`, `QuantileWeibull`, `QuantileBlom`).
 - Single `k` via `--k`; this script intentionally does not require a manually chosen quantile list.
 - Includes internal safety assertions that interpolation from full order stats matches backend `Quantile*` methods at several test quantiles.
@@ -241,5 +242,5 @@ python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --outp
 
 ```bash
 python examples/plot_reward_cdf_quantile.py --dist uniform --k 10 --estimator Quantile,QuantileWeibull,QuantileBlom
-python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-weight 0.35 --mix-mu 2.0 --mix-sigma 0.7 --k 12 --estimator QuantileHazen,QuantileBlom --store-data --tag cdf_mix_k12
+python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-centers -1.0,2.0,4.5 --mix-scales 0.8,0.7,1.1 --mix-weights 0.2,0.55,0.25 --k 12 --estimator QuantileHazen,QuantileBlom --store-data --tag cdf_mix_k12
 ```

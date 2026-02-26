@@ -31,24 +31,50 @@ def _parse_estimators(spec: str) -> list[str]:
     return out
 
 
+def _parse_float_list(spec: str, name: str) -> list[float]:
+    vals = [float(x.strip()) for x in spec.split(",") if x.strip()]
+    if not vals:
+        raise SystemExit(f"--{name} must contain at least one comma-separated float.")
+    return vals
+
+
+def _validate_mixture(centers: list[float], scales: list[float], weights: list[float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if not (len(centers) == len(scales) == len(weights)):
+        raise SystemExit(
+            "Gaussian mixture parameters must have the same length: "
+            "--mix-centers, --mix-scales, --mix-weights"
+        )
+    c = np.asarray(centers, dtype=np.float64)
+    s = np.asarray(scales, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64)
+    if np.any(s <= 0.0):
+        raise SystemExit("--mix-scales values must all be positive.")
+    if np.any(w < 0.0):
+        raise SystemExit("--mix-weights values must all be nonnegative.")
+    sw = float(np.sum(w))
+    if sw <= 0.0:
+        raise SystemExit("--mix-weights must sum to a positive value.")
+    return c, s, w / sw
+
+
 def _sample_rewards(
     rng: np.random.Generator,
     n: int,
     dist: str,
     *,
-    mix_weight: float,
-    mix_mu: float,
-    mix_sigma: float,
+    mix_centers: np.ndarray,
+    mix_scales: np.ndarray,
+    mix_weights: np.ndarray,
 ) -> np.ndarray:
     if dist == "uniform":
         return rng.uniform(0.0, 1.0, size=n).astype(np.float64)
     if dist == "gaussian":
         return rng.normal(0.0, 1.0, size=n).astype(np.float64)
     if dist == "gaussian_mixture":
-        z = rng.random(size=n)
-        x0 = rng.normal(0.0, 1.0, size=n)
-        x1 = rng.normal(mix_mu, mix_sigma, size=n)
-        return np.where(z < mix_weight, x1, x0).astype(np.float64)
+        comp = rng.choice(len(mix_weights), size=n, p=mix_weights)
+        means = mix_centers[comp]
+        scales = mix_scales[comp]
+        return rng.normal(loc=means, scale=scales, size=n).astype(np.float64)
     raise RuntimeError(dist)
 
 
@@ -56,9 +82,9 @@ def _true_cdf(
     x: np.ndarray,
     dist: str,
     *,
-    mix_weight: float,
-    mix_mu: float,
-    mix_sigma: float,
+    mix_centers: np.ndarray,
+    mix_scales: np.ndarray,
+    mix_weights: np.ndarray,
 ) -> np.ndarray:
     nd = NormalDist(0.0, 1.0)
     if dist == "uniform":
@@ -66,10 +92,11 @@ def _true_cdf(
     if dist == "gaussian":
         return np.asarray([nd.cdf(float(v)) for v in x], dtype=np.float64)
     if dist == "gaussian_mixture":
-        nd1 = NormalDist(mix_mu, mix_sigma)
-        base = np.asarray([nd.cdf(float(v)) for v in x], dtype=np.float64)
-        comp = np.asarray([nd1.cdf(float(v)) for v in x], dtype=np.float64)
-        return (1.0 - mix_weight) * base + mix_weight * comp
+        out = np.zeros_like(x, dtype=np.float64)
+        for mu, sigma, w in zip(mix_centers, mix_scales, mix_weights):
+            nd_i = NormalDist(float(mu), float(sigma))
+            out += float(w) * np.asarray([nd_i.cdf(float(v)) for v in x], dtype=np.float64)
+        return out
     raise RuntimeError(dist)
 
 
@@ -94,7 +121,7 @@ def _interp_quantile_from_orderstats(q: float, orderstats: np.ndarray, p_knots: 
 
 
 def _cdf_from_orderstats(x: np.ndarray, orderstats: np.ndarray, p_knots: np.ndarray) -> np.ndarray:
-    return np.interp(x, orderstats, p_knots, left=0.0, right=1.0).astype(np.float64)
+    return np.interp(x, orderstats, p_knots, left=float(p_knots[0]), right=float(p_knots[-1])).astype(np.float64)
 
 
 def _assert_quantile_method_consistency(rng: np.random.Generator) -> None:
@@ -130,9 +157,9 @@ def main() -> None:
     ap.add_argument("--N", type=int, default=64)
     ap.add_argument("--num-estimates", type=int, default=500)
     ap.add_argument("--cdf-grid", type=int, default=600)
-    ap.add_argument("--mix-weight", type=float, default=0.35)
-    ap.add_argument("--mix-mu", type=float, default=2.0)
-    ap.add_argument("--mix-sigma", type=float, default=0.7)
+    ap.add_argument("--mix-centers", type=str, default="0.0,2.0", help="Comma-separated means for gaussian_mixture components.")
+    ap.add_argument("--mix-scales", type=str, default="1.0,0.7", help="Comma-separated std-devs for gaussian_mixture components.")
+    ap.add_argument("--mix-weights", type=str, default="0.65,0.35", help="Comma-separated nonnegative mixture weights (auto-normalized).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--output", type=str, default="examples/artifacts/reward_cdf_quantile.png")
     ap.add_argument("--store-data", action="store_true")
@@ -153,6 +180,12 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
     _assert_quantile_method_consistency(np.random.default_rng(args.seed + 9991))
 
+    mix_centers, mix_scales, mix_weights = _validate_mixture(
+        _parse_float_list(args.mix_centers, "mix-centers"),
+        _parse_float_list(args.mix_scales, "mix-scales"),
+        _parse_float_list(args.mix_weights, "mix-weights"),
+    )
+
     k_ord = int(math.floor(args.k))
     os = OrderStatTransform.precompute(args.N, args.k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
 
@@ -162,9 +195,9 @@ def main() -> None:
             rng,
             args.N,
             args.dist,
-            mix_weight=args.mix_weight,
-            mix_mu=args.mix_mu,
-            mix_sigma=args.mix_sigma,
+            mix_centers=mix_centers,
+            mix_scales=mix_scales,
+            mix_weights=mix_weights,
         )
         orderstats_mc += os.expected_orderstats(x)
     orderstats_mc /= float(args.num_estimates)
@@ -174,14 +207,16 @@ def main() -> None:
     elif args.dist == "gaussian":
         xmin, xmax = -4.0, 4.0
     else:
-        xmin, xmax = -4.0, max(6.0, args.mix_mu + 4 * args.mix_sigma)
+        lo = float(np.min(mix_centers - 4.0 * mix_scales))
+        hi = float(np.max(mix_centers + 4.0 * mix_scales))
+        xmin, xmax = lo, hi
     xgrid = np.linspace(xmin, xmax, args.cdf_grid, dtype=np.float64)
     cdf_true = _true_cdf(
         xgrid,
         args.dist,
-        mix_weight=args.mix_weight,
-        mix_mu=args.mix_mu,
-        mix_sigma=args.mix_sigma,
+        mix_centers=mix_centers,
+        mix_scales=mix_scales,
+        mix_weights=mix_weights,
     )
 
     curves: dict[str, dict[str, np.ndarray | float]] = {}
@@ -250,9 +285,9 @@ def main() -> None:
                 "k_ord": int(k_ord),
                 "num_estimates": int(args.num_estimates),
                 "methods": list(curves.keys()),
-                "mix_weight": float(args.mix_weight),
-                "mix_mu": float(args.mix_mu),
-                "mix_sigma": float(args.mix_sigma),
+                "mix_centers": [float(x) for x in mix_centers],
+                "mix_scales": [float(x) for x in mix_scales],
+                "mix_weights": [float(x) for x in mix_weights],
                 "seed": int(args.seed),
             },
             "artifacts": {
