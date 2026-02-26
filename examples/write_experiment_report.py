@@ -5,11 +5,28 @@ import argparse
 from pathlib import Path
 
 
+def latex_escape(text: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+    }
+    out = text
+    for k, v in replacements.items():
+        out = out.replace(k, v)
+    return out
+
+
 def fig_block(path: str, caption: str, label: str) -> str:
     return f"""\\begin{{figure}}[t]
     \\centering
     \\includegraphics[width=0.95\\linewidth]{{{path}}}
-    \\caption{{{caption}}}
+    \\caption{{{latex_escape(caption)}}}
     \\label{{{label}}}
 \\end{{figure}}
 """
@@ -30,6 +47,7 @@ def main() -> None:
         ("weights_schemes_multi_k.png", "Comparison of weighting schemes in one panel with per-scheme k settings (N=100). This highlights qualitative differences between presets such as TopM and HarrellDavis.", "fig:weights_schemes"),
         ("runtime_bar.pdf", "Runtime benchmark bar chart (N=300, k=30, repeats=100). Bars compare order-stat, inclusion, advantage, and L-advantage computations.", "fig:runtime_bar"),
         ("snr_cont_fixN_varydim_combined.pdf", "Continuous-case dimensionality dependence (single combined figure): x-axis is dimensionality; left panel is gradient variance and right panel is SNR. Produced from stored vary-dim runs; in the current sweep the L-stat preset was a=ReMax and objective=quad_sin.", "fig:snr_dim_combined"),
+        ("snr_multiarm_fixN_varyarms_combined.pdf", "Multi-arm number-of-arms dependence (single combined figure): x-axis is number of arms; left panel is gradient variance and right panel is SNR. In the current sweep the L-stat preset was a=ReMax with reward-mode=linear.", "fig:snr_arms_combined"),
         ("grad_multiarm_unbias.pdf", "Multi-arm gradient unbiasedness diagnostic: absolute/relative error versus repetition count t for LR estimator against exact known-(r,p) gradient. Settings include reward-mode=gaussian, prob-mode=random.", "fig:grad_multiarm"),
         ("grad_cont_unbias.pdf", "Continuous gradient unbiasedness diagnostic: RP-vs-LR gap versus t. Settings include objective=quad_sin and a=ReMax.", "fig:grad_cont"),
         ("quantile_uniform_q025.pdf", "Quantile-estimator accuracy on Uniform(0,1), target q=0.25. Curves show error decay with repetitions; methods in this sweep used --a Quantile,HarrellDavis and k-list 6,10.", "fig:quant_uniform"),

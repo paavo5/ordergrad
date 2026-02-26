@@ -95,6 +95,7 @@ def main() -> None:
     ap.add_argument("--store-data", action="store_true", help="Store experiment data + setup metadata to disk.")
     ap.add_argument("--tag", type=str, default="default", help="Tag used in stored data filename/metadata.")
     ap.add_argument("--data-dir", type=str, default="examples/data", help="Directory where experiment data is stored.")
+    ap.add_argument("--no-plot", action="store_true", help="Skip plot rendering/saving (useful for data-only sweeps).")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -150,27 +151,28 @@ def main() -> None:
         var_vals.append(var_g.item())
         snr_vals.append(snr)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5.2))
-    axes[0].plot(ks, var_vals, marker="o", label="Var[g]")
-    axes[0].plot(ks, mean_norm_vals, marker="x", label="||E[g]||")
-    axes[0].set_xlabel("k")
-    axes[0].set_title("Multi-arm LR gradient moments vs k")
-    axes[0].grid(alpha=0.3)
-    axes[0].legend()
-
-    axes[1].plot(ks, snr_vals, marker="s", color="tab:green")
-    axes[1].set_xlabel("k")
-    axes[1].set_title("SNR = ||E[g]||^2 / V[g]")
-    axes[1].grid(alpha=0.3)
-
     out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(out, dpi=150)
-    pdf_out = out.with_suffix(".pdf")
-    fig.savefig(pdf_out)
-    print(f"Saved: {out}")
-    print(f"Saved: {pdf_out}")
+    if not args.no_plot:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.2))
+        axes[0].plot(ks, var_vals, marker="o", label="Var[g]")
+        axes[0].plot(ks, mean_norm_vals, marker="x", label="||E[g]||")
+        axes[0].set_xlabel("k")
+        axes[0].set_title("Multi-arm LR gradient moments vs k")
+        axes[0].grid(alpha=0.3)
+        axes[0].legend()
+
+        axes[1].plot(ks, snr_vals, marker="s", color="tab:green")
+        axes[1].set_xlabel("k")
+        axes[1].set_title("SNR = ||E[g]||^2 / V[g]")
+        axes[1].grid(alpha=0.3)
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.tight_layout()
+        fig.savefig(out, dpi=150)
+        pdf_out = out.with_suffix(".pdf")
+        fig.savefig(pdf_out)
+        print(f"Saved: {out}")
+        print(f"Saved: {pdf_out}")
 
     if args.store_data:
         import numpy as np
@@ -204,8 +206,8 @@ def main() -> None:
                 "sample_buffer_size": args.sample_buffer_size,
             },
             "artifacts": {
-                "plot": str(out),
-                "plot_pdf": str(pdf_out),
+                "plot": (str(out) if not args.no_plot else None),
+                "plot_pdf": (str(out.with_suffix(".pdf")) if not args.no_plot else None),
                 "data_npz": str(npz_path),
             },
         }

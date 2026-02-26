@@ -218,3 +218,12 @@ python examples/plot_dimensionality_snr.py --data-dir examples/data/<timestamp> 
 ```bash
 python examples/write_experiment_report.py --art-dir examples/artifacts/<timestamp> --output examples/artifacts/<timestamp>/report.tex
 ```
+
+
+## 13) Number-of-arms dependence plot (single figure)
+
+`plot_num_arms_snr.py` loads stored `mc_snr_multiarm` vary-arms runs and produces one combined figure with number of arms on the x-axis.
+
+```bash
+python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_multiarm_fixN_varyarms_combined.png
+```
