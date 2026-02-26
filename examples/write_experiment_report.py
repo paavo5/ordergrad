@@ -47,6 +47,40 @@ def _format_value(v: Any) -> str:
     return str(v)
 
 
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null"}:
+        return True
+    return False
+
+
+def _infer_lstat_summary(setup: dict[str, Any]) -> str:
+    a_value = setup.get("a")
+    if not _is_missing(a_value):
+        return f"L-statistic preset/weights: a={_format_value(a_value)}"
+
+    methods = setup.get("methods")
+    method = setup.get("method")
+    candidates: list[str] = []
+    if isinstance(methods, list):
+        candidates.extend(str(m) for m in methods)
+    elif isinstance(methods, str):
+        candidates.extend([m.strip() for m in methods.split(",") if m.strip()])
+    if isinstance(method, str):
+        candidates.append(method)
+
+    if candidates:
+        lstat_like = [m for m in candidates if any(k in m.lower() for k in ["quantile", "harrelldavis", "topm", "botm", "trim", "winsor", "lmoment", "gmd", "rank", "tailmean"]) ]
+        if lstat_like:
+            return f"L-statistic estimator methods: {_format_value(lstat_like)}"
+
+    if "arm_rank" in setup:
+        return "No L-statistic preset provided; this figure is configured by a fixed order-stat rank (arm_rank)"
+
+    return "No explicit L-statistic preset metadata was provided for this run."
+
+
 def _caption_from_metadata(meta: dict[str, Any]) -> str:
     experiment = str(meta.get("experiment", "unknown_experiment"))
     tag = str(meta.get("tag", "unknown_tag"))
@@ -77,17 +111,23 @@ def _caption_from_metadata(meta: dict[str, Any]) -> str:
     pieces: list[str] = []
     for key in key_priority:
         if key in setup:
+            if key == "a" and _is_missing(setup[key]):
+                used.add(key)
+                continue
             used.add(key)
             pieces.append(f"{key}={_format_value(setup[key])}")
 
     for key in sorted(setup.keys()):
         if key not in used:
+            if key == "a" and _is_missing(setup[key]):
+                continue
             pieces.append(f"{key}={_format_value(setup[key])}")
 
     details = "; ".join(pieces) if pieces else "No setup metadata found"
     return (
         f"Experiment '{experiment}' (tag='{tag}'). "
-        f"Automatically extracted settings: {details}."
+        f"Automatically extracted settings: {details}. "
+        f"{_infer_lstat_summary(setup)}."
     )
 
 
@@ -167,11 +207,18 @@ def _summarize_combined_metadata(metas: list[dict[str, Any]], figure_stem: str) 
     varying_parts = [f"{k}={_format_value(varying[k])}" for k in varying_keys if k in varying]
     varying_parts.extend(f"{k}={_format_value(varying[k])}" for k in sorted(varying) if k not in varying_keys)
 
+    lstat_notes = [_infer_lstat_summary(s) for s in setups]
+    uniq_notes: list[str] = []
+    for note in lstat_notes:
+        if note not in uniq_notes:
+            uniq_notes.append(note)
+
     return (
         f"Combined figure assembled from {len(metas)} runs of experiment '{experiment}' "
         f"(tags={_format_value(tags)}). "
         f"Shared settings: {'; '.join(shared_parts) if shared_parts else 'none identified'}. "
-        f"Varying settings across source runs: {'; '.join(varying_parts) if varying_parts else 'none identified'}."
+        f"Varying settings across source runs: {'; '.join(varying_parts) if varying_parts else 'none identified'}. "
+        f"L-statistic metadata summary across source runs: {' | '.join(uniq_notes)}."
     )
 
 
