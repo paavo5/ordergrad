@@ -9,21 +9,18 @@ from typing import Any
 
 def latex_escape(text: str) -> str:
     replacements = {
-        "\\": r"\\textbackslash{}",
-        "&": r"\\&",
-        "%": r"\\%",
-        "$": r"\\$",
-        "#": r"\\#",
-        "_": r"\\_",
-        "{": r"\\{",
-        "}": r"\\}",
-        "~": r"\\textasciitilde{}",
-        "^": r"\\textasciicircum{}",
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
     }
-    out = text
-    for k, v in replacements.items():
-        out = out.replace(k, v)
-    return out
+    return "".join(replacements.get(ch, ch) for ch in text)
 
 
 def fig_block(path: str, caption: str, label: str) -> str:
@@ -94,9 +91,10 @@ def _caption_from_metadata(meta: dict[str, Any]) -> str:
     )
 
 
-def _load_metadata_maps(data_dir: Path) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+def _load_metadata_maps(data_dir: Path) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
     by_artifact_name: dict[str, dict[str, Any]] = {}
     by_tag_stem: dict[str, dict[str, Any]] = {}
+    all_meta: list[dict[str, Any]] = []
 
     for jp in sorted(data_dir.glob("*.json")):
         try:
@@ -105,6 +103,7 @@ def _load_metadata_maps(data_dir: Path) -> tuple[dict[str, dict[str, Any]], dict
             continue
         if not isinstance(meta, dict):
             continue
+        all_meta.append(meta)
 
         tag = meta.get("tag")
         exp = meta.get("experiment")
@@ -117,7 +116,94 @@ def _load_metadata_maps(data_dir: Path) -> tuple[dict[str, dict[str, Any]], dict
                 if isinstance(value, str) and value:
                     by_artifact_name[Path(value).name] = meta
 
-    return by_artifact_name, by_tag_stem
+    return by_artifact_name, by_tag_stem, all_meta
+
+
+def _meta_matches_stem(meta: dict[str, Any], stem: str) -> bool:
+    tag = meta.get("tag")
+    exp = meta.get("experiment")
+    if isinstance(tag, str) and tag == stem:
+        return True
+    if isinstance(tag, str) and stem.endswith(tag):
+        return True
+    if isinstance(tag, str) and isinstance(exp, str) and f"{exp}__{tag}" == stem:
+        return True
+    return False
+
+
+def _summarize_combined_metadata(metas: list[dict[str, Any]], figure_stem: str) -> str:
+    if not metas:
+        return (
+            f"Auto-included figure '{figure_stem}'. "
+            "No matching metadata JSON was found for this artifact."
+        )
+
+    experiment = str(metas[0].get("experiment", "unknown_experiment"))
+    tags = [str(m.get("tag", "unknown_tag")) for m in metas]
+    setups = [m.get("setup", {}) if isinstance(m.get("setup", {}), dict) else {} for m in metas]
+
+    all_keys = sorted({k for s in setups for k in s.keys()})
+    shared: dict[str, Any] = {}
+    varying: dict[str, list[Any]] = {}
+    for key in all_keys:
+        vals = [s.get(key) for s in setups if key in s]
+        if not vals:
+            continue
+        first = vals[0]
+        if all(v == first for v in vals):
+            shared[key] = first
+        else:
+            uniq: list[Any] = []
+            for v in vals:
+                if v not in uniq:
+                    uniq.append(v)
+            varying[key] = uniq
+
+    shared_keys = ["a", "k", "N", "num_mc", "seed", "objective", "reward_mode", "prob_mode", "dist", "quantile", "method", "methods"]
+    shared_parts = [f"{k}={_format_value(shared[k])}" for k in shared_keys if k in shared]
+    shared_parts.extend(f"{k}={_format_value(shared[k])}" for k in sorted(shared) if k not in shared_keys)
+
+    varying_keys = ["dim", "num_arms", "k", "k_grid", "k_list", "tag"]
+    varying_parts = [f"{k}={_format_value(varying[k])}" for k in varying_keys if k in varying]
+    varying_parts.extend(f"{k}={_format_value(varying[k])}" for k in sorted(varying) if k not in varying_keys)
+
+    return (
+        f"Combined figure assembled from {len(metas)} runs of experiment '{experiment}' "
+        f"(tags={_format_value(tags)}). "
+        f"Shared settings: {'; '.join(shared_parts) if shared_parts else 'none identified'}. "
+        f"Varying settings across source runs: {'; '.join(varying_parts) if varying_parts else 'none identified'}."
+    )
+
+
+def _find_metadata_for_figure(stem: str, name: str, by_artifact_name: dict[str, dict[str, Any]], by_tag_stem: dict[str, dict[str, Any]], all_meta: list[dict[str, Any]]) -> str:
+    direct = by_artifact_name.get(name) or by_tag_stem.get(stem)
+    if direct is not None:
+        return _caption_from_metadata(direct)
+
+    if stem.endswith("_arms"):
+        base = stem[: -len("_arms")]
+        base_meta = by_tag_stem.get(f"monte_carlo_accuracy__{base}") or by_tag_stem.get(base)
+        if base_meta is not None:
+            return _caption_from_metadata(base_meta) + " This specific panel is the per-arm detail view."
+
+    if "varydim_combined" in stem:
+        metas = [m for m in all_meta if isinstance(m.get("tag"), str) and str(m.get("tag")).startswith("snr_cont_fixN_varydim_")]
+        return _summarize_combined_metadata(metas, stem)
+
+    if "varyarms_combined" in stem:
+        metas = [m for m in all_meta if isinstance(m.get("tag"), str) and str(m.get("tag")).startswith("snr_multiarm_fixN_varyarms_")]
+        return _summarize_combined_metadata(metas, stem)
+
+    fuzzy = [m for m in all_meta if _meta_matches_stem(m, stem)]
+    if len(fuzzy) == 1:
+        return _caption_from_metadata(fuzzy[0])
+    if len(fuzzy) > 1:
+        return _summarize_combined_metadata(fuzzy, stem)
+
+    return (
+        f"Auto-included figure '{name}'. "
+        "No matching metadata JSON was found for this artifact."
+    )
 
 
 def main() -> None:
@@ -137,8 +223,9 @@ def main() -> None:
 
     by_artifact_name: dict[str, dict[str, Any]] = {}
     by_tag_stem: dict[str, dict[str, Any]] = {}
+    all_meta: list[dict[str, Any]] = []
     if data_dir.exists():
-        by_artifact_name, by_tag_stem = _load_metadata_maps(data_dir)
+        by_artifact_name, by_tag_stem, all_meta = _load_metadata_maps(data_dir)
 
     figures = []
 
@@ -148,14 +235,7 @@ def main() -> None:
     selected = list(pdfs) + [p for p in pngs if p.stem not in stems_with_pdf]
 
     for p in selected:
-        meta = by_artifact_name.get(p.name) or by_tag_stem.get(p.stem)
-        if meta is None:
-            cap = (
-                f"Auto-included figure '{p.name}'. "
-                "No matching metadata JSON was found for this artifact."
-            )
-        else:
-            cap = _caption_from_metadata(meta)
+        cap = _find_metadata_for_figure(p.stem, p.name, by_artifact_name, by_tag_stem, all_meta)
         label = f"fig:auto:{p.stem}"
         figures.append(fig_block(p.name, cap, label))
 
