@@ -22,6 +22,18 @@ def _load_meta(data_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _write_compiled_metadata(data_dir: Path, tag: str, setup: dict[str, Any], artifacts: dict[str, str]) -> None:
+    meta = {
+        "experiment": "plot_stored_data_compiled",
+        "tag": tag,
+        "setup": setup,
+        "artifacts": artifacts,
+    }
+    out = data_dir / f"plot_stored_data_compiled__{tag}.json"
+    out.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+    print(f'Saved: {out}')
+
+
 def _copy_recorded_artifacts(metas: list[dict[str, Any]], out_dir: Path) -> None:
     """Copy any plot artifacts already referenced by metadata to output dir."""
     copied: set[str] = set()
@@ -45,28 +57,48 @@ def _copy_recorded_artifacts(metas: list[dict[str, Any]], out_dir: Path) -> None
             print(f'Saved: {dst}')
 
 
-def _plot_snr_compiled(metas: list[dict[str, Any]], out_dir: Path, exp: str) -> None:
+def _plot_snr_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Path, exp: str) -> None:
     entries = [m for m in metas if m.get('experiment') == exp]
     if not entries:
         return
 
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    plotted = 0
+    skipped_singleton = 0
+
     for m in entries:
         npz = np.load(m['artifacts']['data_npz'])
-        ks = npz['k']
+        ks = np.asarray(npz['k'])
+
+        # Skip one-point series in compiled k-sweep plot; those are shown by dedicated
+        # combined vary-arms/vary-dim plots.
+        if ks.size <= 1:
+            skipped_singleton += 1
+            continue
+
         if exp == 'mc_snr_multiarm':
-            y = npz['snr']
-            label = m.get('tag', 'untagged')
+            y = np.asarray(npz['snr'])
+            mode = str(m.get('setup', {}).get('reward_mode', 'unknown'))
+            label = f"{m.get('tag', 'untagged')} [{mode}]"
         else:
-            y = npz['lr_snr']
-            label = f"{m.get('tag', 'untagged')} (LR)"
-        ax.plot(ks, y, marker='o', label=label)
+            y = np.asarray(npz['lr_snr'])
+            obj = str(m.get('setup', {}).get('objective', 'unknown'))
+            label = f"{m.get('tag', 'untagged')} [LR,{obj}]"
+
+        order = np.argsort(ks)
+        ax.plot(ks[order], y[order], marker='o', linewidth=1.8, label=label)
+        plotted += 1
+
+    if plotted == 0:
+        plt.close(fig)
+        print(f"Warning: no multi-point k-sweep runs found for {exp}; skipped compiled plot.")
+        return
 
     ax.set_xlabel('k')
     ax.set_ylabel('SNR')
-    ax.set_title(f'Stored {exp} SNR curves')
+    ax.set_title(f'Stored {exp} SNR curves (k sweeps only)')
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
     out_png = out_dir / f'{exp}_compiled.png'
@@ -77,8 +109,20 @@ def _plot_snr_compiled(metas: list[dict[str, Any]], out_dir: Path, exp: str) -> 
     print(f'Saved: {out_png}')
     print(f'Saved: {out_pdf}')
 
+    _write_compiled_metadata(
+        data_dir=data_dir,
+        tag=f'{exp}_compiled',
+        setup={
+            'source_experiment': exp,
+            'plotted_series': plotted,
+            'skipped_singleton_series': skipped_singleton,
+            'description': 'Compiled SNR-vs-k overlay from stored multi-point sweeps only',
+        },
+        artifacts={'plot_png': str(out_png), 'plot_pdf': str(out_pdf)},
+    )
 
-def _plot_quantile_accuracy_compiled(metas: list[dict[str, Any]], out_dir: Path) -> None:
+
+def _plot_quantile_accuracy_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Path) -> None:
     entries = [m for m in metas if m.get('experiment') == 'quantile_estimator_accuracy']
     if not entries:
         return
@@ -124,6 +168,17 @@ def _plot_quantile_accuracy_compiled(metas: list[dict[str, Any]], out_dir: Path)
     print(f'Saved: {out_png}')
     print(f'Saved: {out_pdf}')
 
+    _write_compiled_metadata(
+        data_dir=data_dir,
+        tag='quantile_accuracy_compiled',
+        setup={
+            'source_experiment': 'quantile_estimator_accuracy',
+            'plotted_entries': len(entries),
+            'description': 'Compiled absolute/relative quantile error curves from stored quantile-estimator runs',
+        },
+        artifacts={'plot_png': str(out_png), 'plot_pdf': str(out_pdf)},
+    )
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description='Plot all stored experiment data into png/pdf outputs.')
@@ -146,9 +201,9 @@ def main() -> None:
     if args.copy_recorded_artifacts:
         _copy_recorded_artifacts(metas, out_dir)
 
-    _plot_snr_compiled(metas, out_dir, 'mc_snr_multiarm')
-    _plot_snr_compiled(metas, out_dir, 'mc_snr_continuous')
-    _plot_quantile_accuracy_compiled(metas, out_dir)
+    _plot_snr_compiled(metas, data_dir, out_dir, 'mc_snr_multiarm')
+    _plot_snr_compiled(metas, data_dir, out_dir, 'mc_snr_continuous')
+    _plot_quantile_accuracy_compiled(metas, data_dir, out_dir)
 
 
 if __name__ == '__main__':
