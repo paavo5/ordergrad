@@ -227,3 +227,17 @@ python examples/write_experiment_report.py --art-dir examples/artifacts/<timesta
 ```bash
 python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_multiarm_fixN_varyarms_combined.png
 ```
+
+
+## 14) True CDF + quantile-estimator comparison
+
+`plot_reward_cdf_quantile.py` plots the true reward CDF and overlays quantile estimates from one or more chosen estimators (e.g. `QuantileHazen`, `QuantileBlom`, `HarrellDavis`) for a target quantile `q`.
+
+- Distribution choice via `--dist {uniform,gaussian,gaussian_mixture}`.
+- Estimator choice via `--estimator` (comma-separated list) and corresponding `--k-list`.
+- Saves both PNG and PDF, and optionally stores data/metadata (`--store-data`).
+
+```bash
+python examples/plot_reward_cdf_quantile.py --dist uniform --quantile 0.25 --estimator QuantileHazen,HarrellDavis --k-list 6,10
+python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-weight 0.35 --mix-mu 2.0 --mix-sigma 0.7 --quantile 0.9 --estimator QuantileBlom,HarrellDavis --k-list 8,12
+```
