@@ -185,14 +185,13 @@ Two helper bash scripts automate large experiment/plot batches:
 
 - `run_all_experiments.sh`: executes a broad set of experiments and stores outputs
   under timestamped subfolders in `examples/data/` and `examples/artifacts/`.
-- `run_all_plots.sh`: loads stored `.json/.npz` entries and creates compiled plots
-  via `plot_stored_data.py` (both PNG and PDF).
+- `run_all_plots.sh`: loads stored `.json/.npz` entries, recreates compiled/combined plots, copies recorded per-experiment figures into the target folder, and writes a LaTeX report.
 
 ```bash
 # Run all experiments
 examples/run_all_experiments.sh
 
-# Build compiled plots from stored data
+# Build plots into a chosen output folder from a chosen data folder
 examples/run_all_plots.sh examples/data/<timestamp> examples/artifacts/<timestamp>/compiled
 ```
 
