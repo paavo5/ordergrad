@@ -226,7 +226,8 @@ def main() -> None:
     for method in estimators:
         p_knots = _plotting_positions(method, k_ord)
         cdf_est = _cdf_from_orderstats(xgrid, orderstats_mc, p_knots)
-        rmse = float(np.sqrt(np.mean((cdf_est - cdf_true) ** 2)))
+        sq_err = (cdf_est - cdf_true) ** 2
+        rmse = float(np.sqrt(np.nanmean(sq_err)))
         curves[method] = {
             "p_knots": p_knots,
             "cdf_est": cdf_est,
