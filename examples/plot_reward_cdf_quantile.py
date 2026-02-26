@@ -121,7 +121,10 @@ def _interp_quantile_from_orderstats(q: float, orderstats: np.ndarray, p_knots: 
 
 
 def _cdf_from_orderstats(x: np.ndarray, orderstats: np.ndarray, p_knots: np.ndarray) -> np.ndarray:
-    return np.interp(x, orderstats, p_knots, left=float(p_knots[0]), right=float(p_knots[-1])).astype(np.float64)
+    cdf = np.interp(x, orderstats, p_knots).astype(np.float64)
+    mask = (x < float(orderstats[0])) | (x > float(orderstats[-1]))
+    cdf[mask] = np.nan
+    return cdf
 
 
 def _assert_quantile_method_consistency(rng: np.random.Generator) -> None:
