@@ -213,7 +213,7 @@ python examples/plot_dimensionality_snr.py --data-dir examples/data/<timestamp> 
 
 ## 12) LaTeX report generator
 
-`write_experiment_report.py` creates a `report.tex` file that imports generated figures and attaches verbose captions (including key settings such as reward mode/objective and selected `a` presets where applicable).
+`write_experiment_report.py` creates a `report.tex` file that imports **all** generated figures in the artifact folder (prefers PDF when both PNG/PDF exist) and attaches descriptive captions. Captions point to accompanying metadata files for full run settings (including `a`, `k`, objectives, reward modes, etc.).
 
 ```bash
 python examples/write_experiment_report.py --art-dir examples/artifacts/<timestamp> --output examples/artifacts/<timestamp>/report.tex

@@ -376,7 +376,10 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
+    pdf_out = out.with_suffix(".pdf")
+    fig.savefig(pdf_out)
     print(f"Saved error curves: {out}")
+    print(f"Saved error curves: {pdf_out}")
 
     if args.store_data:
         data_dir = Path(args.data_dir)

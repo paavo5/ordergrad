@@ -289,7 +289,10 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
+    pdf_out = out.with_suffix(".pdf")
+    fig.savefig(pdf_out)
     print(f"Saved: {out}")
+    print(f"Saved: {pdf_out}")
 
     if args.show:
         plt.show()
