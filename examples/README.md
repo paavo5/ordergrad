@@ -229,15 +229,17 @@ python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --outp
 ```
 
 
-## 14) True CDF + quantile-estimator comparison
+## 14) True CDF vs interpolated full-order-statistics quantile curves
 
-`plot_reward_cdf_quantile.py` plots the true reward CDF and overlays quantile estimates from one or more chosen estimators (e.g. `QuantileHazen`, `QuantileBlom`, `HarrellDavis`) for a target quantile `q`.
+`plot_reward_cdf_quantile.py` computes **all expected order statistics** for one `k`, converts rank positions to plotting probabilities for selected quantile conventions, builds a linear interpolation, and compares the induced CDF curve to the true CDF.
 
 - Distribution choice via `--dist {uniform,gaussian,gaussian_mixture}`.
-- Estimator choice via `--estimator` (comma-separated list) and corresponding `--k-list`.
+- Estimator choice via `--estimator` (comma-separated list from `Quantile`, `QuantileHazen`, `QuantileWeibull`, `QuantileBlom`).
+- Single `k` via `--k`; this script intentionally does not require a manually chosen quantile list.
+- Includes internal safety assertions that interpolation from full order stats matches backend `Quantile*` methods at several test quantiles.
 - Saves both PNG and PDF, and optionally stores data/metadata (`--store-data`).
 
 ```bash
-python examples/plot_reward_cdf_quantile.py --dist uniform --quantile 0.25 --estimator QuantileHazen,HarrellDavis --k-list 6,10
-python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-weight 0.35 --mix-mu 2.0 --mix-sigma 0.7 --quantile 0.9 --estimator QuantileBlom,HarrellDavis --k-list 8,12
+python examples/plot_reward_cdf_quantile.py --dist uniform --k 10 --estimator Quantile,QuantileWeibull,QuantileBlom
+python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-weight 0.35 --mix-mu 2.0 --mix-sigma 0.7 --k 12 --estimator QuantileHazen,QuantileBlom --store-data --tag cdf_mix_k12
 ```
