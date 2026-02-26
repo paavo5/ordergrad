@@ -34,6 +34,24 @@ def _write_compiled_metadata(data_dir: Path, tag: str, setup: dict[str, Any], ar
     print(f'Saved: {out}')
 
 
+def _unique_values(vals: list[Any]) -> list[Any]:
+    out: list[Any] = []
+    for v in vals:
+        if v not in out:
+            out.append(v)
+    return out
+
+
+def _lstat_explanation(setups: list[dict[str, Any]]) -> str:
+    a_vals = _unique_values([s.get('a') for s in setups if 'a' in s])
+    clean_a = [v for v in a_vals if v not in (None, '', 'none', 'None')]
+    if clean_a:
+        return f"Explicit L-stat settings from source runs: a={clean_a}"
+    if any('arm_rank' in s for s in setups):
+        return 'No explicit L-stat a; source runs are rank-configured (arm_rank) where applicable'
+    return 'No explicit L-stat a in source metadata; scripts use each experiment default estimator setting'
+
+
 def _copy_recorded_artifacts(metas: list[dict[str, Any]], out_dir: Path) -> None:
     """Copy any plot artifacts already referenced by metadata to output dir."""
     copied: set[str] = set()
@@ -67,6 +85,8 @@ def _plot_snr_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Pat
     fig, ax = plt.subplots(figsize=(9, 5.5))
     plotted = 0
     skipped_singleton = 0
+    plotted_setups: list[dict[str, Any]] = []
+    plotted_tags: list[str] = []
 
     for m in entries:
         npz = np.load(m['artifacts']['data_npz'])
@@ -90,6 +110,10 @@ def _plot_snr_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Pat
         order = np.argsort(ks)
         ax.plot(ks[order], y[order], marker='o', linewidth=1.8, label=label)
         plotted += 1
+        setup = m.get('setup', {})
+        if isinstance(setup, dict):
+            plotted_setups.append(setup)
+        plotted_tags.append(str(m.get('tag', 'untagged')))
 
     if plotted == 0:
         plt.close(fig)
@@ -109,13 +133,26 @@ def _plot_snr_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Pat
     print(f'Saved: {out_png}')
     print(f'Saved: {out_pdf}')
 
+    n_values = _unique_values([s.get('N') for s in plotted_setups if 'N' in s])
+    num_mc_values = _unique_values([s.get('num_mc') for s in plotted_setups if 'num_mc' in s])
+    a_values = _unique_values([s.get('a') for s in plotted_setups if 'a' in s])
+    reward_modes = _unique_values([s.get('reward_mode') for s in plotted_setups if 'reward_mode' in s])
+    objectives = _unique_values([s.get('objective') for s in plotted_setups if 'objective' in s])
+
     _write_compiled_metadata(
         data_dir=data_dir,
         tag=f'{exp}_compiled',
         setup={
             'source_experiment': exp,
+            'source_tags': plotted_tags,
             'plotted_series': plotted,
             'skipped_singleton_series': skipped_singleton,
+            'N_values': n_values,
+            'num_mc_values': num_mc_values,
+            'a_values': a_values,
+            'reward_modes': reward_modes,
+            'objectives': objectives,
+            'lstat_explanation': _lstat_explanation(plotted_setups),
             'description': 'Compiled SNR-vs-k overlay from stored multi-point sweeps only',
         },
         artifacts={'plot_png': str(out_png), 'plot_pdf': str(out_pdf)},
