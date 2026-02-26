@@ -49,6 +49,6 @@ PYTHONPATH=. python3 examples/plot_dimensionality_snr.py --data-dir "$DATA_DIR" 
 PYTHONPATH=. python3 examples/plot_num_arms_snr.py --data-dir "$DATA_DIR" --tag-prefix "mc_snr_multiarm__snr_multiarm_fixN_varyarms_" --output "$ART_DIR/snr_multiarm_fixN_varyarms_combined.png" || true
 
 # Auto-generate LaTeX report with verbose captions and figure settings
-PYTHONPATH=. python3 examples/write_experiment_report.py --art-dir "$ART_DIR" --output "$ART_DIR/report.tex" || true
+PYTHONPATH=. python3 examples/write_experiment_report.py --art-dir "$ART_DIR" --data-dir "$DATA_DIR" --output "$ART_DIR/report.tex" || true
 
 echo "Done. data_dir=$DATA_DIR artifacts_dir=$ART_DIR"
