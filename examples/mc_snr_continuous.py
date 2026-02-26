@@ -214,6 +214,9 @@ def main() -> None:
                 "a": args.a,
                 "seed": args.seed,
                 "sample_buffer_size": args.sample_buffer_size,
+                "objective": args.objective,
+                "reward_mode": args.objective,
+                "sin_freq": args.sin_freq,
             },
             "artifacts": {
                 "plot": (str(out) if not args.no_plot else None),

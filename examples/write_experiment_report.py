@@ -81,12 +81,21 @@ def _infer_lstat_summary(setup: dict[str, Any]) -> str:
     return "No explicit L-statistic preset metadata was provided for this run."
 
 
+def _normalize_setup_for_caption(setup: dict[str, Any]) -> dict[str, Any]:
+    out = dict(setup)
+    # Some experiments store objective name instead of reward_mode.
+    if 'reward_mode' not in out and 'objective' in out:
+        out['reward_mode'] = out['objective']
+    return out
+
+
 def _caption_from_metadata(meta: dict[str, Any]) -> str:
     experiment = str(meta.get("experiment", "unknown_experiment"))
     tag = str(meta.get("tag", "unknown_tag"))
     setup = meta.get("setup", {})
     if not isinstance(setup, dict):
         setup = {}
+    setup = _normalize_setup_for_caption(setup)
 
     key_priority = [
         "a",
@@ -180,7 +189,7 @@ def _summarize_combined_metadata(metas: list[dict[str, Any]], figure_stem: str) 
 
     experiment = str(metas[0].get("experiment", "unknown_experiment"))
     tags = [str(m.get("tag", "unknown_tag")) for m in metas]
-    setups = [m.get("setup", {}) if isinstance(m.get("setup", {}), dict) else {} for m in metas]
+    setups = [_normalize_setup_for_caption(m.get("setup", {})) if isinstance(m.get("setup", {}), dict) else {} for m in metas]
 
     all_keys = sorted({k for s in setups for k in s.keys()})
     shared: dict[str, Any] = {}

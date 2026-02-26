@@ -40,6 +40,10 @@ PYTHONPATH=. python3 examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 
 PYTHONPATH=. python3 examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --arm-rank 3 --reward-mode gaussian --prob-mode random --plot-arm-details --store-data --tag mc_accuracy_rank3 --data-dir "$DATA_DIR" --output "$ART_DIR/mc_accuracy_rank3.png" || true
 PYTHONPATH=. python3 examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --arm-rank 6 --reward-mode gaussian --prob-mode random --plot-arm-details --store-data --tag mc_accuracy_rank_last --data-dir "$DATA_DIR" --output "$ART_DIR/mc_accuracy_rank_last.png" || true
 
+# Reward CDF vs interpolated quantile-CDF curves
+PYTHONPATH=. python3 examples/plot_reward_cdf_quantile.py --dist uniform --N 64 --k 10 --num-estimates 300 --estimator Quantile,QuantileWeibull,QuantileBlom --store-data --tag reward_cdf_uniform_k10 --data-dir "$DATA_DIR" --output "$ART_DIR/reward_cdf_uniform_k10.png" || true
+PYTHONPATH=. python3 examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --N 64 --k 10 --num-estimates 300 --estimator QuantileHazen,QuantileBlom --mix-centers 0.0,2.0 --mix-scales 1.0,0.7 --mix-weights 0.65,0.35 --store-data --tag reward_cdf_gmix_k10 --data-dir "$DATA_DIR" --output "$ART_DIR/reward_cdf_gmix_k10.png" || true
+
 # Quantile vs HarrellDavis accuracy
 PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --k-list 6,10 --store-data --tag quantile_uniform_q025 --data-dir "$DATA_DIR" --output "$ART_DIR/quantile_uniform_q025.png" || true
 PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.25 --N 64 --k-list 6,10 --store-data --tag quantile_gaussian_q025 --data-dir "$DATA_DIR" --output "$ART_DIR/quantile_gaussian_q025.png" || true

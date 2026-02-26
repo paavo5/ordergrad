@@ -217,6 +217,59 @@ def _plot_quantile_accuracy_compiled(metas: list[dict[str, Any]], data_dir: Path
     )
 
 
+def _plot_reward_cdf_compiled(metas: list[dict[str, Any]], data_dir: Path, out_dir: Path) -> None:
+    entries = [m for m in metas if m.get('experiment') == 'reward_cdf_quantile']
+    if not entries:
+        return
+
+    import matplotlib.pyplot as plt
+
+    for m in entries:
+        tag = str(m.get('tag', 'untagged'))
+        npz = np.load(m['artifacts']['data_npz'])
+        xgrid = np.asarray(npz['xgrid'])
+        cdf_true = np.asarray(npz['cdf_true'])
+        methods = np.asarray(npz['methods']).astype(str) if 'methods' in npz else np.array([])
+        cdf_est = np.asarray(npz['cdf_est']) if 'cdf_est' in npz else None
+        rmse = np.asarray(npz['rmse']) if 'rmse' in npz else None
+
+        fig, ax = plt.subplots(figsize=(9.2, 5.5))
+        ax.plot(xgrid, cdf_true, color='black', linewidth=2.1, label='True CDF')
+
+        if cdf_est is not None and cdf_est.ndim == 2 and methods.size == cdf_est.shape[0]:
+            for i, method in enumerate(methods):
+                rtxt = ''
+                if rmse is not None and rmse.size > i:
+                    rtxt = f" (RMSE={float(rmse[i]):.3e})"
+                ax.plot(xgrid, cdf_est[i], linewidth=1.7, label=f"{method}{rtxt}")
+
+        ax.set_xlabel('reward value')
+        ax.set_ylabel('CDF')
+        ax.set_ylim(-0.02, 1.02)
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+        ax.set_title(f'Stored reward_cdf_quantile: {tag}')
+
+        out_png = out_dir / f'reward_cdf_quantile_compiled__{tag}.png'
+        out_pdf = out_dir / f'reward_cdf_quantile_compiled__{tag}.pdf'
+        fig.tight_layout()
+        fig.savefig(out_png, dpi=150)
+        fig.savefig(out_pdf)
+        print(f'Saved: {out_png}')
+        print(f'Saved: {out_pdf}')
+
+        _write_compiled_metadata(
+            data_dir=data_dir,
+            tag=f'reward_cdf_quantile_compiled__{tag}',
+            setup={
+                'source_experiment': 'reward_cdf_quantile',
+                'source_tag': tag,
+                'description': 'Replotted reward CDF comparison from stored arrays',
+            },
+            artifacts={'plot_png': str(out_png), 'plot_pdf': str(out_pdf)},
+        )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description='Plot all stored experiment data into png/pdf outputs.')
     ap.add_argument('--data-dir', type=str, default='examples/data')
@@ -241,6 +294,7 @@ def main() -> None:
     _plot_snr_compiled(metas, data_dir, out_dir, 'mc_snr_multiarm')
     _plot_snr_compiled(metas, data_dir, out_dir, 'mc_snr_continuous')
     _plot_quantile_accuracy_compiled(metas, data_dir, out_dir)
+    _plot_reward_cdf_compiled(metas, data_dir, out_dir)
 
 
 if __name__ == '__main__':
