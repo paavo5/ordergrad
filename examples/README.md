@@ -197,6 +197,10 @@ examples/run_all_experiments.sh my_tag --overwrite
 
 # Build plots into a chosen output folder from a chosen data folder
 examples/run_all_plots.sh examples/data/<timestamp_or_tag> examples/artifacts/<timestamp_or_tag>/compiled
+
+# Convenience final pipeline (experiments + compiled plots + compiled report)
+examples/run_all_experiments_fin.sh my_tag
+examples/run_all_experiments_fin.sh my_tag --overwrite
 ```
 
 `plot_stored_data.py` is intentionally easy to tune directly (line styles, labels,
