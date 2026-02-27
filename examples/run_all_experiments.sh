@@ -16,6 +16,7 @@ if [[ -e "$DATA_DIR" || -e "$ART_DIR" ]]; then
     echo "Target data/artifact folder already exists for tag '$TS'. Re-run with --overwrite to reuse it." >&2
     exit 1
   fi
+  rm -rf "$DATA_DIR" "$ART_DIR"
 fi
 mkdir -p "$DATA_DIR" "$ART_DIR"
 

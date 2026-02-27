@@ -289,6 +289,8 @@ def main() -> None:
     pngs = sorted(art.glob("*.png"))
     stems_with_pdf = {p.stem for p in pdfs}
     selected = list(pdfs) + [p for p in pngs if p.stem not in stems_with_pdf]
+    # Avoid self-inclusion cycles and stale build artifacts.
+    selected = [p for p in selected if p.stem != "report" and not p.name.startswith("report.")]
 
     for p in selected:
         cap = _find_metadata_for_figure(p.stem, p.name, by_artifact_name, by_tag_stem, all_meta)
