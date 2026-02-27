@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TS="$(date +%Y%m%d_%H%M%S)"
+TS="${1:-$(date +%Y%m%d_%H%M%S)}"
+OVERWRITE=0
+if [[ "${2:-}" == "--overwrite" || "${1:-}" == "--overwrite" ]]; then
+  OVERWRITE=1
+  if [[ "${1:-}" == "--overwrite" ]]; then
+    TS="$(date +%Y%m%d_%H%M%S)"
+  fi
+fi
 DATA_DIR="examples/data/${TS}"
 ART_DIR="examples/artifacts/${TS}"
+if [[ -e "$DATA_DIR" || -e "$ART_DIR" ]]; then
+  if [[ "$OVERWRITE" -ne 1 ]]; then
+    echo "Target data/artifact folder already exists for tag '$TS'. Re-run with --overwrite to reuse it." >&2
+    exit 1
+  fi
+fi
 mkdir -p "$DATA_DIR" "$ART_DIR"
 
 # Weight plots: different ranks (N=100, k=10)

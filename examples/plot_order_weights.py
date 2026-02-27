@@ -78,7 +78,7 @@ def _parse_single_a(spec: str, *, ranks: list[int], k_ord: int) -> np.ndarray:
         try:
             return OrderStatTransform._preset_lstat_weights(k_ord, text, dtype=np.float64)
         except Exception as e:
-            raise SystemExit(f"Invalid preset for --a: {e}") from e
+            raise SystemExit(f"Invalid preset for --a entry '{text}': {e}") from e
 
     vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:

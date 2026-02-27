@@ -54,6 +54,13 @@ def _parse_a(spec: str | None, k_ord: int, torch_mod: Any, *, device, dtype):
         return torch_mod.linspace(0.3, 1.0, steps=k_ord, dtype=dtype, device=device)
     text = spec.strip()
     if any(ch.isalpha() for ch in text):
+        if "," in text:
+            tokens = [tok.strip() for tok in text.split(",") if tok.strip()]
+            raise SystemExit(
+                "Invalid preset list for --a: this script expects a single preset string "
+                f"or numeric weights. Received multiple preset-like entries: {tokens}. "
+                "Pass one preset (e.g., TopM:3) or numeric comma-separated weights."
+            )
         return text
     vals = [float(x) for x in text.split(",") if x.strip()]
     if len(vals) == 0:

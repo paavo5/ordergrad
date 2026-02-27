@@ -190,9 +190,13 @@ Two helper bash scripts automate large experiment/plot batches:
 ```bash
 # Run all experiments
 examples/run_all_experiments.sh
+# Optional tag instead of timestamp
+examples/run_all_experiments.sh my_tag
+# Optional overwrite when tag folder already exists
+examples/run_all_experiments.sh my_tag --overwrite
 
 # Build plots into a chosen output folder from a chosen data folder
-examples/run_all_plots.sh examples/data/<timestamp> examples/artifacts/<timestamp>/compiled
+examples/run_all_plots.sh examples/data/<timestamp_or_tag> examples/artifacts/<timestamp_or_tag>/compiled
 ```
 
 `plot_stored_data.py` is intentionally easy to tune directly (line styles, labels,
