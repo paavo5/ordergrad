@@ -65,7 +65,10 @@ PYTHONPATH=. python3 examples/quantile_estimator_accuracy.py --dist gaussian --q
 PYTHONPATH=. python3 examples/plot_dimensionality_snr.py --data-dir "$DATA_DIR" --tag-prefix "mc_snr_continuous__snr_cont_fixN_varydim_" --output "$ART_DIR/snr_cont_fixN_varydim_combined.png" || true
 PYTHONPATH=. python3 examples/plot_num_arms_snr.py --data-dir "$DATA_DIR" --tag-prefix "mc_snr_multiarm__snr_multiarm_fixN_varyarms_" --output "$ART_DIR/snr_multiarm_fixN_varyarms_combined.png" || true
 
-# Auto-generate LaTeX report with verbose captions and figure settings
+# Build compiled plots + compiled report from stored metadata/artifacts
+bash examples/run_all_plots.sh "$DATA_DIR" "$ART_DIR/compiled" || true
+
+# Also keep a direct report for the raw artifact folder (best-effort)
 PYTHONPATH=. python3 examples/write_experiment_report.py --art-dir "$ART_DIR" --data-dir "$DATA_DIR" --output "$ART_DIR/report.tex" || true
 
-echo "Done. data_dir=$DATA_DIR artifacts_dir=$ART_DIR"
+echo "Done. data_dir=$DATA_DIR artifacts_dir=$ART_DIR compiled_dir=$ART_DIR/compiled"
