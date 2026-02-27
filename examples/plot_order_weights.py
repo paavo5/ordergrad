@@ -16,6 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
+from examples.logging_utils import infer_data_dir_from_output, save_metadata_json
+
 from ordergrad.numpy_backend import (
     OrderStatTransform,
     precompute_ABC_conditional_including_rank,
@@ -171,6 +173,9 @@ def main() -> None:
         help="In conditional mode, also plot leave-one-out weights for excluding the same conditioned rank.",
     )
     parser.add_argument("--output", type=str, default="examples/artifacts/order_weights.png", help="Output PNG path.")
+    parser.add_argument("--store-data", action=argparse.BooleanOptionalAction, default=True, help="Store run metadata JSON (default: on).")
+    parser.add_argument("--data-dir", type=str, default=None, help="Metadata directory. If omitted, inferred from output path.")
+    parser.add_argument("--tag", type=str, default=None, help="Metadata tag (defaults to output stem).")
     parser.add_argument("--show", action="store_true", help="Show interactive window in addition to saving.")
     args = parser.parse_args()
 
@@ -293,6 +298,30 @@ def main() -> None:
     fig.savefig(pdf_out)
     print(f"Saved: {out}")
     print(f"Saved: {pdf_out}")
+
+    if args.store_data:
+        data_dir = Path(args.data_dir) if args.data_dir else infer_data_dir_from_output(out)
+        tag = str(args.tag) if args.tag else out.stem
+        save_metadata_json(
+            experiment="plot_order_weights",
+            tag=tag,
+            setup={
+                "N": int(args.N),
+                "k": [float(x) for x in k_values],
+                "k_ord": [int(x) for x in k_ord_values],
+                "ranks": [int(r) for r in ranks],
+                "a": args.a,
+                "mode": args.mode,
+                "conditioned_rank": int(args.conditioned_rank),
+                "show_delta": bool(args.show_delta),
+                "show_leave_one_out": bool(args.show_leave_one_out),
+            },
+            artifacts={
+                "plot_png": str(out),
+                "plot_pdf": str(pdf_out),
+            },
+            data_dir=data_dir,
+        )
 
     if args.show:
         plt.show()

@@ -15,6 +15,7 @@ These scripts are intended as a hands-on playground for understanding and profil
   - or one value per listed rank,
   - or a preset string (e.g. `TopM:3`, `Median`, `TopBot:2`).
 - `--k` can be a comma-separated list, and can be paired with multiple `--a` presets (broadcasting is allowed when one list has length 1).
+- Metadata is saved by default (JSON sidecar in inferred `examples/data/<tag>`); use `--no-store-data` to disable, or set `--data-dir`/`--tag` explicitly.
 - In conditional mode, `--show-delta` overlays `W_cond - W`.
 - In conditional mode, `--show-leave-one-out` overlays leave-one-out weights for excluding the same conditioned rank.
 
