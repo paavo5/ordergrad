@@ -1,0 +1,254 @@
+# Examples playground
+
+These scripts are intended as a hands-on playground for understanding and profiling `ordergrad` behavior.
+
+## 1) Plot order weights
+
+`plot_order_weights.py` plots order-statistic weight curves over sorted rank `m` (while rank labels `j` are 1-based from top: `j=1` is highest).
+
+### Features
+- `--mode unconditional`: plot `W[m,j]`.
+- `--mode conditional`: plot conditional inclusion weights for a fixed conditioned sorted rank `r`.
+- `--ranks` supports explicit lists and inclusive ranges: e.g. `1,3..6,10`. Use `--ranks 0` to skip individual rank curves and only plot combined `a`-weighted curves.
+- Optional `--a` lets you define sparse L-stat coefficients on listed ranks, or provide preset strings directly. Multiple presets can be passed as a comma list (e.g. `--a TopM:3,BotM:3,Median`):
+  - one value: broadcast to all listed ranks,
+  - or one value per listed rank,
+  - or a preset string (e.g. `TopM:3`, `Median`, `TopBot:2`).
+- `--k` can be a comma-separated list, and can be paired with multiple `--a` presets (broadcasting is allowed when one list has length 1).
+- Metadata is saved by default (JSON sidecar in inferred `examples/data/<tag>`); use `--no-store-data` to disable, or set `--data-dir`/`--tag` explicitly.
+- In conditional mode, `--show-delta` overlays `W_cond - W`.
+- In conditional mode, `--show-leave-one-out` overlays leave-one-out weights for excluding the same conditioned rank.
+
+```bash
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,5,10,15,20
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a 0.25
+python examples/plot_order_weights.py --N 120 --k 20 --ranks 1,3..8,12 --a TopM:3
+python examples/plot_order_weights.py --N 120 --k 10,20 --ranks 0 --a TopM:2,BotM:2
+python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-delta
+python examples/plot_order_weights.py --mode conditional --conditioned-rank 40 --N 120 --k 20 --ranks 1,5,10 --show-leave-one-out
+```
+
+## 2) Benchmark methods
+
+`benchmark_methods.py` compares runtime tradeoffs for three backends (`np`, `jax`, `torch`) selected by `--backend`.
+
+- Backends are imported lazily (JAX/Torch are imported only if requested).
+- Reports precompute time for:
+  - **no-dense**: does not build dense rank-space operators,
+  - **dense**: builds dense matrices (`M_inc`, `M_loo`, `M_adv`) used by matmul mode.
+- Reports per-call runtime for unconditional, inclusion (`inc`), advantage (`adv`), and L-advantage methods.
+- Also explicitly compares **full order-stat computation + dot with `a`** versus **direct preweighted L-stat computation** (`with_lstat_weights(a)`), which behaves like computing one weighted statistic directly.
+- `--efficient` runs only efficient/no-dense computations (skips dense precompute and matmul rows), including direct preweighted (`with_lstat_weights(a)`) efficient benchmarks.
+
+```bash
+python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend jax --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend torch --N 500 --k 40 --repeats 100
+python examples/benchmark_methods.py --backend np --N 500 --k 40 --repeats 100 --efficient
+```
+
+## 3) Monte Carlo estimator accuracy curve
+
+`monte_carlo_accuracy.py` checks that repeated averages of the **batch estimator** converge to the exact known-`(r,p)` target.
+
+- One estimator run = one batch of `N` sampled values with estimator parameter `k`.
+- `--backend {np,jax,torch}` selects backend lazily (JAX/Torch imported only when requested).
+- `--num-arms` controls the size of the known `(r,p)` model used for comparison.
+- `--t-grid` is the number of independent repeated estimator runs to average.
+- `--a` sets L-stat weights (single value broadcast, comma list of length `floor(k)` in top-rank order (`j=1` highest), or preset string such as `TopM:3`).
+- `--reward-mode` controls arm reward generation in multi-arm experiments: `gaussian`, `linear`, or `exp`.
+- `--prob-mode` controls action sampling probabilities: `random` (default) or `uniform`.
+- Internally the script preweights using `with_lstat_weights(a)` so `L-advantage` uses the precomputed fast path even for default `a`.
+- Plots both **absolute** and **relative** error versus `t` for:
+  - order-statistics,
+  - inclusion,
+  - advantage,
+  - L-advantage.
+- Optional `--plot-arm-details` saves an extra figure comparing exact vs estimated per-arm
+  inclusion/advantage (for estimator rank selected by `--arm-rank`, with `j=1` highest), L-inclusion, and L-advantage at `t=max(t-grid)`.
+- Uses a buffered sampler (`--sample-buffer-size`) that pre-draws many arm indices at once,
+  then serves per-batch requests from that buffer before refilling.
+
+```bash
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --reward-mode exp
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --prob-mode uniform
+python examples/monte_carlo_accuracy.py --backend torch --N 64 --k 6 --num-arms 8 --plot-arm-details --arm-rank 1
+python examples/monte_carlo_accuracy.py --backend jax --N 64 --k 6 --num-arms 8 --sample-buffer-size 500000
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a TopM:3
+python examples/monte_carlo_accuracy.py --backend np --N 64 --k 6 --num-arms 8 --a 0.2,0.1,0.3,0.15,0.1,0.15
+```
+
+
+## 4) Monte Carlo gradient check (multi-arm)
+
+`mc_gradients_multiarm.py` (torch-only) compares an LR gradient estimator
+(using the computed L-advantage baseline) against an exact known-(r,p) gradient
+obtained by differentiating the exact objective with torch autograd.
+It applies a `k` multiplier to the LR estimator (`k * mean(adv * score)`),
+which is needed for unbiasedness under this formulation.
+
+```bash
+python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --t-grid 1,2,5,10,20,50,100,200
+python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --reward-mode linear
+python examples/mc_gradients_multiarm.py --N 64 --k 6 --num-arms 8 --prob-mode uniform
+```
+
+## 5) Monte Carlo gradient check (continuous)
+
+`mc_gradients_continuous.py` (torch/autograd-only) compares reparameterization
+(pathwise/RP) and advantage-based LR gradient estimators for a continuous
+Normal-location model with a quadratic reward transform.
+This script also uses the `k` multiplier in the LR estimator (`k * mean(adv * score)`),
+as required for unbiasedness in this setup.
+The dimensionality is configurable via `--dim`: for `dim>1`, the script uses a
+vector location parameter and reports vector-gradient mismatch statistics.
+
+```bash
+python examples/mc_gradients_continuous.py --N 64 --k 6 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
+python examples/mc_gradients_continuous.py --N 64 --k 6 --dim 4 --mu 0.5 --center 1.0 --t-grid 1,2,5,10,20,50,100,200
+```
+
+## 6) Gradient variance / SNR vs k (multi-arm)
+
+`mc_snr_multiarm.py` estimates gradient variance and signal-to-noise ratio
+for the multi-arm LR estimator across a list of `k` values.
+
+- Uses Monte Carlo repeated gradient estimates (`--num-mc`) for each `k` in `--k-grid`.
+- Reports and plots:
+  - `V[g]`: sum of per-dimension variances,
+  - `SNR = ||E[g]||^2 / V[g]`.
+- Supports numeric or preset `--a` definitions (e.g. `TopM:3`).
+- Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
+- `--no-plot` skips per-run figure generation (useful for sweeps that will be aggregated later).
+
+```bash
+python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3
+python examples/mc_snr_multiarm.py --N 64 --num-arms 8 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopM:3 --store-data --tag topm3_baseline
+```
+
+## 7) Gradient variance / SNR vs k (continuous)
+
+`mc_snr_continuous.py` compares RP and LR gradient estimator variance/SNR as
+`k` changes in the continuous Normal-location setting.
+
+- Computes RP and LR gradient samples for each `k` in `--k-grid`.
+- Plots `V[g]` and `SNR = ||E[g]||^2 / V[g]` for both estimators.
+- Supports multi-dimensional parameterization via `--dim` and numeric/preset `--a`.
+- Optional `--store-data` writes arrays (`.npz`) and experiment setup metadata (`.json`) to `--data-dir`, keyed by `--tag`.
+- `--no-plot` skips per-run figure generation (useful for sweeps that will be aggregated later).
+
+```bash
+python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2
+python examples/mc_snr_continuous.py --N 64 --dim 2 --k-grid 1,2,3,4,5,6 --num-mc 2000 --a TopBot:2 --store-data --tag topbot2_dim2
+```
+
+---
+
+## Notes
+
+- Plotting scripts require `matplotlib`.
+- Outputs are saved under `examples/artifacts/` by default.
+
+## 8) Quantile estimator accuracy (Quantile:q vs HarrellDavis:q)
+
+`quantile_estimator_accuracy.py` compares Monte Carlo convergence of quantile-style presets against the exact population quantile (standard mass-below convention).
+
+### Features
+- Supports `--dist uniform` and `--dist gaussian` with exact quantiles computed analytically.
+- Uses `--quantile q` (quantile convention: `q` mass below the threshold) and applies it to every method.
+- Choose methods with `--a` as a comma-separated list restricted to quantile-style methods (`Quantile*` variants and `HarrellDavis`).
+- Supports separate k values per method using `--k-list` (one value broadcasts).
+- Plots absolute and relative error vs number of repetitions `t`.
+- Prints a compact summary table only for the largest `t` in `--t-grid`, with one row per method and columns for mean/error/RMSE metrics.
+
+```bash
+python examples/quantile_estimator_accuracy.py --dist uniform --quantile 0.25 --N 64 --a Quantile,HarrellDavis --k-list 6
+python examples/quantile_estimator_accuracy.py --dist gaussian --quantile 0.9 --N 128 --a QuantileHazen,QuantileBlom,HarrellDavis --k-list 6,6,12 --t-grid 1,2,5,10,20,50,100,200
+```
+
+
+## 9) Runtime bar benchmark
+
+`benchmark_runtime_bar.py` runs a compact runtime benchmark and writes a bar chart
+plus data/metadata files.
+
+- Saves PNG and PDF plots.
+- Always stores `.npz` and `.json` in `--data-dir`.
+
+```bash
+python examples/benchmark_runtime_bar.py --N 300 --k 30 --repeats 100 --tag runtime_default
+```
+
+## 10) Orchestration scripts for full sweeps
+
+Two helper bash scripts automate large experiment/plot batches:
+
+- `run_all_experiments.sh`: executes a broad set of experiments and stores outputs
+  under timestamped subfolders in `examples/data/` and `examples/artifacts/`.
+- `run_all_plots.sh`: loads stored `.json/.npz` entries, recreates compiled/combined plots, copies recorded per-experiment figures into the target folder, and writes a LaTeX report.
+
+```bash
+# Run all experiments
+examples/run_all_experiments.sh
+# Optional tag instead of timestamp
+examples/run_all_experiments.sh my_tag
+# Optional overwrite when tag folder already exists
+examples/run_all_experiments.sh my_tag --overwrite
+
+# Build plots into a chosen output folder from a chosen data folder
+examples/run_all_plots.sh examples/data/<timestamp_or_tag> examples/artifacts/<timestamp_or_tag>/compiled
+
+# Convenience final pipeline (experiments + compiled plots + compiled report)
+examples/run_all_experiments_fin.sh my_tag
+examples/run_all_experiments_fin.sh my_tag --overwrite
+```
+
+`plot_stored_data.py` is intentionally easy to tune directly (line styles, labels,
+which experiment groups to aggregate).
+
+
+## 11) Dimensionality dependence plot (single figure)
+
+`plot_dimensionality_snr.py` loads stored `mc_snr_continuous` runs (e.g. from
+`run_all_experiments.sh`) and creates one combined figure where the x-axis is
+dimensionality.
+
+```bash
+python examples/plot_dimensionality_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_cont_fixN_varydim_combined.png
+```
+
+
+## 12) LaTeX report generator
+
+`write_experiment_report.py` creates a `report.tex` file that imports **all** generated figures in the artifact folder (prefers PDF when both PNG/PDF exist) and attaches descriptive captions. Captions point to accompanying metadata files for full run settings (including `a`, `k`, objectives, reward modes, etc.).
+
+```bash
+python examples/write_experiment_report.py --art-dir examples/artifacts/<timestamp> --output examples/artifacts/<timestamp>/report.tex
+```
+
+
+## 13) Number-of-arms dependence plot (single figure)
+
+`plot_num_arms_snr.py` loads stored `mc_snr_multiarm` vary-arms runs and produces one combined figure with number of arms on the x-axis.
+
+```bash
+python examples/plot_num_arms_snr.py --data-dir examples/data/<timestamp> --output examples/artifacts/<timestamp>/snr_multiarm_fixN_varyarms_combined.png
+```
+
+
+## 14) True CDF vs interpolated full-order-statistics quantile curves
+
+`plot_reward_cdf_quantile.py` computes **all expected order statistics** for one `k`, converts rank positions to plotting probabilities for selected quantile conventions, builds a linear interpolation, and compares the induced CDF curve to the true CDF.
+
+- Distribution choice via `--dist {uniform,gaussian,gaussian_mixture}`.
+- For `gaussian_mixture`, use intuitive comma-separated component parameters: `--mix-centers`, `--mix-scales`, `--mix-weights`.
+- Estimator choice via `--estimator` (comma-separated list from `Quantile`, `QuantileHazen`, `QuantileWeibull`, `QuantileBlom`).
+- Single `k` via `--k`; this script intentionally does not require a manually chosen quantile list.
+- Includes internal safety assertions that interpolation from full order stats matches backend `Quantile*` methods at several test quantiles.
+- Saves both PNG and PDF, and optionally stores data/metadata (`--store-data`).
+
+```bash
+python examples/plot_reward_cdf_quantile.py --dist uniform --k 10 --estimator Quantile,QuantileWeibull,QuantileBlom
+python examples/plot_reward_cdf_quantile.py --dist gaussian_mixture --mix-centers -1.0,2.0,4.5 --mix-scales 0.8,0.7,1.1 --mix-weights 0.2,0.55,0.25 --k 12 --estimator QuantileHazen,QuantileBlom --store-data --tag cdf_mix_k12
+```

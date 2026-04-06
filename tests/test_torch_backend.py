@@ -59,11 +59,36 @@ def test_torch_gradient_matches_rank_weights():
 
 
 @pytest.mark.torch
+def test_torch_advantage_detach_flag_controls_gradient_flow():
+    rng = np.random.default_rng(32)
+    N, k = 20, 5
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=k).astype(np.float64)
+
+    os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+    c_th = torch.tensor(rng.normal(size=N), dtype=torch.float64)
+
+    x_det = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
+    y_det = torch.dot(c_th, os_th.expected_lstat_advantage(x_det, a_th, detach_advantage=True))
+    assert not y_det.requires_grad
+    with pytest.raises(RuntimeError, match="does not require grad"):
+        y_det.backward()
+
+    x_att = torch.tensor(x_np, dtype=torch.float64, requires_grad=True)
+    y_att = torch.dot(c_th, os_th.expected_lstat_advantage(x_att, a_th, detach_advantage=False))
+    y_att.backward()
+    g_att = x_att.grad.detach().cpu().numpy()
+
+    assert not np.allclose(g_att, 0.0, atol=1e-10, rtol=1e-10)
+
+
+@pytest.mark.torch
 def test_torch_lstat_and_advantage_match_numpy_with_and_without_preweights():
     rng = np.random.default_rng(11)
     N, k = 30, 6
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     os_np = NP.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
     os_th = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
@@ -135,7 +160,7 @@ def test_torch_dense_matmul_variants_match_efficient_and_auto():
     rng = np.random.default_rng(13)
     N, k = 22, 5
     x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=k).astype(np.float64)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
 
     x_th = torch.tensor(x_np, dtype=torch.float64)
     a_th = torch.tensor(a_np, dtype=torch.float64)
@@ -207,3 +232,113 @@ def test_torch_dense_matmul_variants_match_efficient_and_auto():
         rtol=1e-12,
         atol=1e-12,
     )
+
+
+@pytest.mark.torch
+@pytest.mark.torch
+
+
+@pytest.mark.torch
+def test_torch_known_rp_matches_numpy():
+    r_np = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
+    p_np = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
+    k = 4
+    a_np = np.array([0.2, -0.1, 0.4, 0.3], dtype=np.float64)
+
+    os_np = NP.precompute(12, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(12, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    r_th = torch.tensor(r_np, dtype=torch.float64)
+    p_th = torch.tensor(p_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    np.testing.assert_allclose(os_th.expected_orderstats_known_rp(r_th, p_th).detach().cpu().numpy(), os_np.expected_orderstats_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_th.expected_orderstats_inclusion_known_rp(r_th, p_th).detach().cpu().numpy(), os_np.expected_orderstats_inclusion_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_th.expected_orderstats_advantage_known_rp(r_th, p_th).detach().cpu().numpy(), os_np.expected_orderstats_advantage_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_th.expected_lstat_advantage_known_rp(r_th, p_th, a_th).detach().cpu().numpy(), os_np.expected_lstat_advantage_known_rp(r_np, p_np, a_np), rtol=1e-12, atol=1e-12)
+
+
+def test_torch_real_k_matches_integer_k_when_equal():
+    rng = np.random.default_rng(19)
+    N, k = 14, 5
+    x_np = _rand_x_no_ties(rng, N)
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+
+    os_int = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+    os_real = TH.precompute(N, float(k), dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True)
+
+    np.testing.assert_allclose(os_real.expected_orderstats(x_th).detach().cpu().numpy(), os_int.expected_orderstats(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_inclusion(x_th).detach().cpu().numpy(), os_int.expected_orderstats_inclusion(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(os_real.expected_orderstats_leave_one_out(x_th).detach().cpu().numpy(), os_int.expected_orderstats_leave_one_out(x_th).detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_real_k_fractional_is_supported():
+    rng = np.random.default_rng(20)
+    N, k = 15, 5.4
+    x_np = _rand_x_no_ties(rng, N)
+    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
+
+    x_th = torch.tensor(x_np, dtype=torch.float64)
+    a_th = torch.tensor(a_np, dtype=torch.float64)
+
+    os_frac = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+
+    assert np.isfinite(os_frac.expected_orderstats(x_th).detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_leave_one_out(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy()).all()
+    assert np.isfinite(os_frac.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy()).all()
+
+
+@pytest.mark.torch
+def test_torch_harrell_davis_matches_numpy_reference_weights_and_alias():
+    k = 9
+    q = 0.25
+
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    w_np = os_np._preset_lstat_weights(k, f"HarrellDavis:{q}", dtype=np.float64)
+    w_th = os_th._preset_lstat_weights(k, f"HarrellDavis:{q}", dtype=torch.float64, device=torch.device("cpu"))
+    w_alias = os_th._preset_lstat_weights(k, f"HarrelDavis:{q}", dtype=torch.float64, device=torch.device("cpu"))
+
+    np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(w_alias.detach().cpu().numpy(), w_th.detach().cpu().numpy(), rtol=1e-12, atol=1e-12)
+
+    
+
+
+@pytest.mark.torch
+def test_torch_quantile_preset_matches_numpy_reference():
+    k = 6
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    for spec in ["Quantile:0.1", "QuantileWeibull:0.1", "QuantileHazen:0.1", "QuantileBlom:0.1", "TopQuantileBlom:0.1"]:
+        w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
+        w_th = os_th._preset_lstat_weights(k, spec, dtype=torch.float64, device=torch.device("cpu"))
+        np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_rank_preset_matches_numpy_reference():
+    k = 6
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    w_np = os_np._preset_lstat_weights(k, "Rank:3", dtype=np.float64)
+    w_th = os_th._preset_lstat_weights(k, "Rank:3", dtype=torch.float64, device=torch.device("cpu"))
+    np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_tailmean_presets_match_numpy_reference():
+    k = 6
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    for spec in ["UpperTailMean:0.25", "LowerTailMean:0.25"]:
+        w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
+        w_th = os_th._preset_lstat_weights(k, spec, dtype=torch.float64, device=torch.device("cpu"))
+        np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)

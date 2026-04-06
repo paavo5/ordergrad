@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 
 # -----------------------------
@@ -8,6 +8,91 @@ from typing import Optional, Tuple
 # -----------------------------
 
 import math
+
+
+def _betainc_regularized(a: float, b: float, x: float) -> float:
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+
+    def _betacf(aa: float, bb: float, xx: float) -> float:
+        qab = aa + bb
+        qap = aa + 1.0
+        qam = aa - 1.0
+        c = 1.0
+        d = 1.0 - qab * xx / qap
+        if abs(d) < 1e-30:
+            d = 1e-30
+        d = 1.0 / d
+        h = d
+        for m in range(1, 201):
+            m2 = 2 * m
+            num = m * (bb - m) * xx / ((qam + m2) * (aa + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            h *= d * c
+
+            num = -(aa + m) * (qab + m) * xx / ((aa + m2) * (qap + m2))
+            d = 1.0 + num * d
+            if abs(d) < 1e-30:
+                d = 1e-30
+            c = 1.0 + num / c
+            if abs(c) < 1e-30:
+                c = 1e-30
+            d = 1.0 / d
+            delta = d * c
+            h *= delta
+            if abs(delta - 1.0) < 3e-14:
+                break
+        return h
+
+    ln_bt = (
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log1p(-x)
+    )
+    bt = math.exp(ln_bt)
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
+def _harrell_davis_weights(k: int, q: float, *, dtype=np.float64) -> np.ndarray:
+    if not (0.0 <= q <= 1.0):
+        raise ValueError(f"HarrellDavis:q requires 0 <= q <= 1 (got q={q})")
+    a = (k + 1) * q
+    b = (k + 1) * (1.0 - q)
+    u_hi = np.arange(1, k + 1, dtype=np.float64) / float(k)
+    u_lo = np.arange(0, k, dtype=np.float64) / float(k)
+    w = np.array([_betainc_regularized(a, b, hi) - _betainc_regularized(a, b, lo) for lo, hi in zip(u_lo, u_hi)], dtype=np.float64)
+    return np.asarray(w, dtype=dtype)
+
+
+def _l_moment_weights(k: int, r: int, *, dtype=np.float64) -> np.ndarray:
+    if not (1 <= r <= k):
+        raise ValueError(f"LMoment:r requires integer r with 1 <= r <= k (got r={r}, k={k})")
+
+    def _b_weights(t: int) -> np.ndarray:
+        w = np.zeros((k,), dtype=np.float64)
+        den = math.comb(k - 1, t - 1)
+        for j in range(t, k + 1):
+            w[j - 1] = math.comb(j - 1, t - 1) / den
+        return w / float(k)
+
+    out = np.zeros((k,), dtype=np.float64)
+    for m in range(r):
+        sign = -1.0 if (m % 2) else 1.0
+        coeff = sign * math.comb(r - 1, m) / math.comb(r - 1 + m, m)
+        out += coeff * _b_weights(r - m)
+    return np.asarray(out / float(r), dtype=dtype)
 
 
 def _log_gamma_np(x):
@@ -74,9 +159,8 @@ def _build_weight_matrix(
 
 def precompute_W_unconditional(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> np.ndarray:
@@ -84,20 +168,21 @@ def precompute_W_unconditional(
 
     Shape: (N,k). Columns sum to 1.
     """
-    if not (isinstance(k, int) and 1 <= k <= N):
-        raise ValueError("Require integer k with 1 <= k <= N")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N):
+        raise ValueError("Require real k with 1 <= k <= N")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N), k_eff)  # log C(N,kappa)
+    log_den = _log_choose(float(N), k_eff)  # log C(N,k)
 
     def log_term(m, j):
         return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
     return _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         log_term,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=True,
@@ -106,9 +191,8 @@ def precompute_W_unconditional(
 
 def precompute_ABC_conditional_including_rank(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -116,11 +200,12 @@ def precompute_ABC_conditional_including_rank(
 
     These correspond to the three cases in the conditional pmf given inclusion of rank r.
     """
-    if not (isinstance(k, int) and 1 <= k <= N):
-        raise ValueError("Require integer k with 1 <= k <= N")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N):
+        raise ValueError("Require real k with 1 <= k <= N")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N - 1), k_eff - 1.0)  # log C(N-1,kappa-1)
+    log_den = _log_choose(float(N - 1), k_eff - 1.0)  # log C(N-1,k-1)
 
     def logA(m, j):
         # m<r case weights
@@ -135,28 +220,28 @@ def precompute_ABC_conditional_including_rank(
         return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
     A = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logA,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
     )
     B = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logB,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
     )
     C = _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         logC,
-        out_shape=(N, k),
+        out_shape=(N, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=False,
@@ -166,9 +251,8 @@ def precompute_ABC_conditional_including_rank(
 
 def precompute_W_leave_one_out(
     N: int,
-    k: int,
+    k: float,
     *,
-    kappa: Optional[float] = None,
     dtype=np.float64,
     chunk_size: Optional[int] = None
 ) -> np.ndarray:
@@ -176,23 +260,111 @@ def precompute_W_leave_one_out(
 
     Shape: (N-1,k). Columns sum to 1. Requires k <= N-1.
     """
-    if not (isinstance(k, int) and 1 <= k <= N - 1):
-        raise ValueError("Require integer k with 1 <= k <= N-1 for leave-one-out")
-    k_eff = float(k if kappa is None else kappa)
+    if not (1 <= k <= N - 1):
+        raise ValueError("Require real k with 1 <= k <= N-1 for leave-one-out")
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
 
-    log_den = _log_choose(float(N - 1), k_eff)  # log C(N-1,kappa)
+    log_den = _log_choose(float(N - 1), k_eff)  # log C(N-1,k)
 
     def log_term(p, j):
         return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k_eff - j)
 
     return _build_weight_matrix(
-        k,
+        k_ord,
         log_den,
         log_term,
-        out_shape=(N - 1, k),
+        out_shape=(N - 1, k_ord),
         dtype=dtype,
         chunk_size=chunk_size,
         renormalize_cols=True,
+    )
+
+
+def _binom_tail_table(k: float, F: np.ndarray, k_ord: int, *, dtype=np.float64) -> np.ndarray:
+    """T[t,j-1] = P(Bin(k,F_t) >= j), with t=0..m and j=1..k_ord."""
+    F = np.asarray(F, dtype=np.float64)
+    s = np.arange(0, k_ord + 1, dtype=np.float64)[:, None]  # (k_ord+1,1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logF = np.where(F[None, :] > 0, np.log(F[None, :]), 0.0)
+        log1mF = np.where(F[None, :] < 1, np.log1p(-F[None, :]), 0.0)
+        term1 = np.where(s > 0, np.where(F[None, :] > 0, s * logF, -np.inf), 0.0)
+        term2 = np.where((float(k) - s) > 0, np.where(F[None, :] < 1, (float(k) - s) * log1mF, -np.inf), 0.0)
+        logpmf = _log_choose(float(k), s) + term1 + term2
+    pmf = np.exp(logpmf)  # (k_ord+1, m+1)
+    cols = [pmf[j:, :].sum(axis=0) for j in range(1, k_ord + 1)]
+    return np.stack(cols, axis=1).astype(dtype, copy=False)
+
+
+def known_rp_orderstats(
+    r: np.ndarray,
+    p: np.ndarray,
+    k: float,
+    *,
+    return_sorted: bool = False,
+    dtype=np.float64,
+):
+    """Exact known-(r,p) with-replacement order-statistics quantities.
+
+    Returns tuple (v, q, adv):
+      - v: (k_ord,) unconditional E[X_(j:k)]
+      - q: (m,k_ord) conditional E[X_(j:k) | A1=b]
+      - adv: (m,k_ord) = q - v
+    where k_ord = floor(k).
+    """
+    r = np.asarray(r, dtype=np.float64)
+    p = np.asarray(p, dtype=np.float64)
+    if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
+        raise ValueError("r and p must be 1D arrays of equal length")
+    if np.any(p < 0):
+        raise ValueError("p must be nonnegative")
+    ps = p.sum()
+    if not np.isfinite(ps) or ps <= 0:
+        raise ValueError("sum(p) must be positive and finite")
+    p = p / ps
+
+    m = r.shape[0]
+    k_eff = float(k)
+    k_ord = int(np.floor(k_eff))
+    if not (1 <= k_eff):
+        raise ValueError("Require real k >= 1")
+    if k_ord < 1:
+        raise ValueError("floor(k) must be >= 1")
+
+    perm = np.argsort(r, kind="mergesort")
+    inv = np.empty_like(perm)
+    inv[perm] = np.arange(m, dtype=perm.dtype)
+    rs = r[perm]
+    ps = p[perm]
+
+    F = np.concatenate([np.array([0.0], dtype=np.float64), np.cumsum(ps)])  # (m+1,)
+    T_k = _binom_tail_table(k_eff, F, k_ord, dtype=dtype)  # (m+1,k_ord)
+    W = T_k[1:, :] - T_k[:-1, :]
+    v = rs @ W
+
+    T_km1 = _binom_tail_table(k_eff - 1.0, F, k_ord, dtype=dtype)
+
+    q_sorted = np.empty((m, k_ord), dtype=dtype)
+    for b in range(m):
+        delta = np.concatenate([np.array([0], dtype=np.int64), (rs[b] <= rs).astype(np.int64)])
+        Q = np.zeros((m + 1, k_ord), dtype=np.float64)
+        rows = np.arange(m + 1)
+        for j in range(1, k_ord + 1):
+            need = j - delta
+            idx = np.clip(need - 1, 0, k_ord - 1)
+            take = T_km1[rows, idx]
+            col = np.where(need <= 0, 1.0, np.where(need <= k_ord, take, 0.0))
+            Q[:, j - 1] = col
+        Wq = Q[1:, :] - Q[:-1, :]
+        q_sorted[b, :] = rs @ Wq
+
+    adv_sorted = q_sorted - v[None, :]
+    if return_sorted:
+        return v.astype(dtype, copy=False), q_sorted.astype(dtype, copy=False), adv_sorted.astype(dtype, copy=False), perm, inv
+    return (
+        v.astype(dtype, copy=False),
+        q_sorted[inv, :].astype(dtype, copy=False),
+        adv_sorted[inv, :].astype(dtype, copy=False),
     )
 
 
@@ -212,7 +384,7 @@ class OrderStatTransform:
 
     N: int
     k: int
-    kappa: float
+    k_eff: float
     W: np.ndarray  # (N,k)
     A: Optional[np.ndarray]  # (N,k)
     B: Optional[np.ndarray]  # (N,k)
@@ -231,54 +403,196 @@ class OrderStatTransform:
     M_adv_a: Optional[np.ndarray] = None  # (N,N)
 
     @staticmethod
-    def _validate_a(a: Optional[np.ndarray], k: int) -> np.ndarray:
+    def _preset_lstat_weights(k: int, spec: str, *, dtype) -> np.ndarray:
+        text = str(spec).strip()
+        if not text:
+            raise ValueError("l-stat preset cannot be empty")
+        name, _, m_txt = text.partition(":")
+        key = name.strip().lower()
+
+        if key in {"remax", "remin", "median", "ginimeandifference", "gmd"}:
+            if m_txt.strip():
+                raise ValueError(f"{name} does not take an m value")
+            out = np.zeros((k,), dtype=dtype)
+            if key == "remax":
+                out[k - 1] = 1.0
+            elif key == "remin":
+                out[0] = 1.0
+            elif key == "median":
+                if k % 2 == 1:
+                    out[k // 2] = 1.0
+                else:
+                    out[(k // 2) - 1] = 0.5
+                    out[k // 2] = 0.5
+            else:  # Gini mean difference
+                j = np.arange(1, k + 1, dtype=dtype)
+                out = (2.0 * (2.0 * j - (k + 1.0))) / (k * (k - 1.0))
+            return out
+
+        if key in {"harrelldavis", "harreldavis"}:
+            if not m_txt.strip():
+                raise ValueError("Preset 'HarrellDavis' requires ':q' (e.g. HarrellDavis:0.75)")
+            q = float(m_txt)
+            return _harrell_davis_weights(k, q, dtype=dtype)
+
+        if key in {
+            "quantile", "topquantile",
+            "quantileweibull", "quantilehazen", "quantileblom",
+            "topquantileweibull", "topquantilehazen", "topquantileblom",
+        }:
+            if not m_txt.strip():
+                raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
+            q = float(m_txt)
+            if not (0.0 <= q <= 1.0):
+                raise ValueError(f"{name}:q requires 0 <= q <= 1 (got q={q})")
+
+            is_top = key.startswith("topquantile")
+            variant = key[len("topquantile"):] if is_top else key[len("quantile"):]
+            # Default Quantile/TopQuantile to Hazen.
+            # p_r(a) = (r-a)/(k+1-2a), with common choices:
+            # Weibull(a=0), Hazen(a=0.5), Blom(a=3/8).
+            if variant == "":
+                a_pp = 0.5
+            elif variant == "weibull":
+                a_pp = 0.0
+            elif variant == "hazen":
+                a_pp = 0.5
+            elif variant == "blom":
+                a_pp = 3.0 / 8.0
+            else:
+                raise ValueError(f"Unknown quantile preset variant in '{name}'")
+
+            q_eff = (1.0 - q) if is_top else q
+            out = np.zeros((k,), dtype=dtype)
+            denom = (k + 1.0 - 2.0 * a_pp)
+            pos = q_eff * denom + a_pp
+            if pos <= 1.0:
+                out[0] = 1.0
+            elif pos >= float(k):
+                out[k - 1] = 1.0
+            else:
+                i_left = int(math.floor(pos))
+                frac = pos - float(i_left)
+                out[i_left - 1] = 1.0 - frac
+                out[i_left] = frac
+            return out
+
+        if key == "rank":
+            if not m_txt.strip():
+                raise ValueError("Preset 'Rank' requires ':r' (e.g. Rank:3)")
+            r = int(m_txt)
+            if not (1 <= r <= k):
+                raise ValueError(f"Rank:r requires integer r with 1 <= r <= {k} (got r={r})")
+            out = np.zeros((k,), dtype=dtype)
+            out[k - r] = 1.0
+            return out
+
+        if key in {"uppertailmean", "lowertailmean"}:
+            if not m_txt.strip():
+                raise ValueError(f"Preset '{name}' requires ':q' (e.g. {name}:0.25)")
+            q = float(m_txt)
+            if not (0.0 < q <= 1.0):
+                raise ValueError(f"{name}:q requires 0 < q <= 1 (got q={q})")
+            m = max(1, int(math.ceil(q * k)))
+            out = np.zeros((k,), dtype=dtype)
+            if key == "uppertailmean":
+                out[k - m :] = 1.0 / m
+            else:
+                out[:m] = 1.0 / m
+            return out
+
+        if key == "lmoment":
+            if not m_txt.strip():
+                raise ValueError("Preset 'LMoment' requires ':r' (e.g. LMoment:2)")
+            r = int(m_txt)
+            return _l_moment_weights(k, r, dtype=dtype)
+
+        if not m_txt.strip():
+            raise ValueError(f"Preset '{name}' requires ':m' (e.g. {name}:3)")
+        m = int(m_txt)
+        if not (1 <= m <= k):
+            raise ValueError(f"m must satisfy 1 <= m <= {k}")
+
+        out = np.zeros((k,), dtype=dtype)
+        if key == "topm":
+            out[k - m :] = 1.0 / m
+        elif key == "botm":
+            out[:m] = 1.0 / m
+        elif key in {"midrangem", "topbot"}:
+            out[:m] = 0.5 / m
+            out[k - m :] += 0.5 / m
+        elif key in {"winsorizedm", "windosrizedm"}:
+            if 2 * m >= k:
+                raise ValueError(f"WinsorizedM requires 2*m < k (got m={m}, k={k})")
+            out[m : k - m] = 1.0 / k
+            out[m] += m / k
+            out[k - m - 1] += m / k
+        elif key in {"trimm", "trimmedm", "trimmeanm"}:
+            if 2 * m >= k:
+                raise ValueError(f"TrimM requires 2*m < k (got m={m}, k={k})")
+            out[m : k - m] = 1.0 / (k - 2 * m)
+        else:
+            raise ValueError(
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q (Hazen default), QuantileWeibull:q, QuantileHazen:q, QuantileBlom:q, TopQuantile:q (Hazen default), TopQuantileWeibull:q, TopQuantileHazen:q, TopQuantileBlom:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+            )
+        return out
+
+    @classmethod
+    def _validate_a(cls, a: Any, k: int, *, dtype=np.float64) -> np.ndarray:
         if a is None:
             raise ValueError("a is required unless using a transform precomputed with l-statistic weights.")
-        a = np.asarray(a)
+        if isinstance(a, str):
+            return cls._preset_lstat_weights(k, a, dtype=dtype)
+        a = np.asarray(a, dtype=dtype)
         if a.shape != (k,):
             raise ValueError(f"a must be shape ({k},)")
-        return a
+        # Numeric vectors are provided in top-rank order (j=1 highest).
+        return a[::-1].copy()
 
     @classmethod
     def precompute(
         cls,
         N: int,
-        k: int,
+        k: float,
         *,
         dtype=np.float64,
         chunk_size: Optional[int] = None,
         compute_conditional: bool = True,
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
-        kappa: Optional[float] = None,
     ):
-        k_eff = float(k if kappa is None else kappa)
-        W = precompute_W_unconditional(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
+        k_eff = float(k)
+        k_ord = int(np.floor(k_eff))
+        if not (1 <= k_eff <= N):
+            raise ValueError("Require real k with 1 <= k <= N")
+        if not (1 <= k_ord <= N):
+            raise ValueError("floor(k) must satisfy 1 <= floor(k) <= N")
+        W = precompute_W_unconditional(N, k_eff, dtype=dtype, chunk_size=chunk_size)
 
         A = B = C = None
         if compute_conditional:
             A, B, C = precompute_ABC_conditional_including_rank(
-                N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size
+                N, k_eff, dtype=dtype, chunk_size=chunk_size
             )
 
         Wm = None
         if compute_leave_one_out:
-            if k > N - 1:
-                raise ValueError("Leave-one-out requires k <= N-1")
-            Wm = precompute_W_leave_one_out(N, k, kappa=k_eff, dtype=dtype, chunk_size=chunk_size)
+            if k_eff > N - 1:
+                raise ValueError("Leave-one-out requires real k <= N-1")
+            Wm = precompute_W_leave_one_out(N, k_eff, dtype=dtype, chunk_size=chunk_size)
 
         M_inc = M_loo = M_adv = None
         if compute_dense_matrices:
             M_inc = cls._build_dense_inclusion_matrix(A, B, C) if (A is not None and B is not None and C is not None) else None
-            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k) if Wm is not None else None
+            M_loo = cls._build_dense_leave_one_out_matrix(Wm, N, k_ord) if Wm is not None else None
             if M_inc is not None and M_loo is not None:
                 M_adv = M_inc - M_loo
 
-        return cls(N=N, k=k, kappa=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+        return cls(N=N, k=k_ord, k_eff=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
 
     def with_lstat_weights(self, a: np.ndarray) -> "OrderStatTransform":
         """Return a new transform with preweighted L-statistic coefficients."""
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         Wa = self.W @ a
         Aa = Ba = Ca = Wma = None
         if self.A is not None and self.B is not None and self.C is not None:
@@ -290,7 +604,7 @@ class OrderStatTransform:
         return OrderStatTransform(
             N=self.N,
             k=self.k,
-            kappa=self.kappa,
+            k_eff=self.k_eff,
             W=self.W,
             A=self.A,
             B=self.B,
@@ -421,7 +735,7 @@ class OrderStatTransform:
             if self.Wa is None:
                 raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
             return self.Wa
-        a = self._validate_a(a, self.k)
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
         return self.W @ a
 
     def lstat_weight_by_item(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> np.ndarray:
@@ -445,7 +759,7 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
         E_inc = self.expected_orderstats_inclusion(x, method=method)
-        return E_inc @ self._validate_a(a, self.k)
+        return E_inc @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
     def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S)] on population with i removed, for all i. Shape (N,)."""
@@ -456,7 +770,7 @@ class OrderStatTransform:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
         E_loo = self.expected_orderstats_leave_one_out(x, method=method)
-        return E_loo @ self._validate_a(a, self.k)
+        return E_loo @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
     def _expected_lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
         XA = x_sorted * self.Aa
@@ -480,7 +794,7 @@ class OrderStatTransform:
         suffix2 = pref2[-1] - pref2_before
         return pref1_excl + suffix2
 
-    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
+    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Return E[X_(j:k)|i included] - E[X_(j:k)] on population with i removed. Shape (N,k)."""
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
@@ -489,8 +803,35 @@ class OrderStatTransform:
             return np.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
         return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
 
+    def expected_orderstats_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Known-(r,p) exact unconditional order-statistics expectation. Shape (k,)."""
+        v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return v
 
-    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
+    def expected_orderstats_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Known-(r,p) exact conditional E[X_(j:k) | A1=b]. Shape (m,k)."""
+        _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return q
+
+    def expected_orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
+        """Known-(r,p) exact advantage q-v. Shape (m,k)."""
+        _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+        return adv
+
+    def expected_lstat_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> float:
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
+        return float(self.expected_orderstats_known_rp(r, p) @ a)
+
+    def expected_lstat_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
+        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+
+    def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
+        a = self._validate_a(a, self.k, dtype=self.W.dtype)
+        return self.expected_orderstats_advantage_known_rp(r, p) @ a
+
+
+    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Convenience: per-item advantage-style transform.
 
         Defined as:
