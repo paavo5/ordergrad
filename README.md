@@ -256,6 +256,3 @@ pytest -m jax
 - Batch transforms assume uniform subset sampling without replacement within the realized batch.
 - Gradients wrt values are piecewise-constant away from ties (stable sorting is used).
 
-## License
-
-MIT
