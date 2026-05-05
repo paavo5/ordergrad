@@ -221,24 +221,40 @@ def test_jax_real_k_matches_integer_k_when_equal():
 
 
 @pytest.mark.jax
-def test_jax_real_k_fractional_is_supported():
-    rng = np.random.default_rng(18)
-    N, k = 15, 5.4
-    x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
+def test_jax_sampling_fractional_k_raises_with_suggestion():
+    with pytest.raises(ValueError, match=r"Fractional k=5\.4.*nearest integer.*interpolate.*TopM.*BotM"):
+        JX.precompute(
+            15,
+            5.4,
+            dtype=jnp.float64,
+            compute_conditional=True,
+            compute_leave_one_out=True,
+            compute_dense_matrices=True,
+        )
 
-    x_jx = jnp.asarray(x_np, dtype=jnp.float64)
-    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
 
-    os_frac = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+@pytest.mark.jax
+def test_jax_known_rp_fractional_matches_numpy_branches():
+    r_np = np.array([0.1, 0.5, 0.9, 0.3, 0.7], dtype=np.float64)
+    p_np = np.array([0.1, 0.2, 0.3, 0.2, 0.2], dtype=np.float64)
+    r_jx = jnp.asarray(r_np, dtype=jnp.float64)
+    p_jx = jnp.asarray(p_np, dtype=jnp.float64)
 
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats(x_jx))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_inclusion(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_leave_one_out(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_advantage(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_lstat_advantage(x_jx, a_jx, method="matmul"))).all()
+    os_np = NP.for_known_rp(1.2, dtype=np.float64)
+    os_jx = JX.for_known_rp(1.2, dtype=jnp.float64)
 
-    
+    np.testing.assert_allclose(
+        np.asarray(os_jx.expected_lstat_known_rp(r_jx, p_jx, "ReMax")),
+        os_np.expected_lstat_known_rp(r_np, p_np, "ReMax"),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(os_jx.expected_lstat_known_rp(r_jx, p_jx, "ReMin")),
+        os_np.expected_lstat_known_rp(r_np, p_np, "ReMin"),
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
 @pytest.mark.jax

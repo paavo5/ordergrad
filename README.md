@@ -52,7 +52,7 @@ Use:
 - `expected_orderstats_advantage_known_rp(r, p)`
 - and L-stat counterparts.
 
-These are exact (up to floating-point error) for the specified `(r,p)` model.
+These are exact (up to floating-point error) for the specified `(r,p)` model. The known-`(r,p)` path supports real-valued `k >= 1` through a beta-order-statistic continuation. For fractional `k`, choose `branch="top"` for ReMax/TopM-style fixed-upper-rank continuation or `branch="bottom"` for ReMin/BotM-style fixed-lower-rank continuation; clear L-stat presets infer this automatically.
 
 ### B) Batch regime (`N` observed rewards)
 
@@ -67,7 +67,7 @@ Use:
 - `expected_orderstats_advantage(x)`
 - and L-stat counterparts.
 
-These are exact for the realized batch and are the estimator objects used in the note’s unbiasedness/equivalence results.
+These are exact for the realized batch and are the estimator objects used in the note’s unbiasedness/equivalence results. The batch/sampling path requires integer `k`; a fractional subset size has no literal without-replacement sampling interpretation.
 
 
 
@@ -114,7 +114,7 @@ N, k = 30, 8
 os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
 
 x = np.random.randn(N)
-a = np.ones(os.k) / os.k  # os.k is floor(k) when k is real
+a = np.ones(os.k) / os.k  # batch k must be an integer; os.k == k
 
 E = os.expected_orderstats(x)                      # (os.k,)
 E_inc = os.expected_orderstats_inclusion(x)        # (N, os.k)
@@ -137,7 +137,7 @@ import numpy as np
 from ordergrad import numpy_backend
 
 N, k = 30, 8
-a = np.ones(int(np.floor(k)), dtype=np.float64) / int(np.floor(k))
+a = np.ones(k, dtype=np.float64) / k
 
 # Option 1: explicit two-step preweighting
 os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
@@ -157,17 +157,19 @@ l_inc = os_l.expected_lstat_inclusion(x)          # shape (N,)
 import numpy as np
 from ordergrad import numpy_backend
 
-# N only configures precomputed batch matrices; known-(r,p) calls can still be used directly.
-os = numpy_backend.OrderStatTransform.precompute(32, 5, dtype=np.float64)
+# Lightweight known-(r,p)-only transforms can use real k.
+os = numpy_backend.OrderStatTransform.for_known_rp(1.2, dtype=np.float64)
 
 r = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
 p = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
-a = np.array([0.2, -0.1, 0.4, 0.3, 0.2], dtype=np.float64)
 
-v = os.expected_orderstats_known_rp(r, p)                 # (os.k,)
-q = os.expected_orderstats_inclusion_known_rp(r, p)        # (m, os.k)
-adv = os.expected_orderstats_advantage_known_rp(r, p)      # (m, os.k)
-l_adv = os.expected_lstat_advantage_known_rp(r, p, a)      # (m,)
+# Logical presets infer the beta branch for fractional k.
+remax = os.expected_lstat_known_rp(r, p, "ReMax")          # branch="top"
+remin = os.expected_lstat_known_rp(r, p, "ReMin")          # branch="bottom"
+
+# Full fractional-k order-stat vectors need an explicit branch.
+v_top = os.expected_orderstats_known_rp(r, p, branch="top")
+v_bottom = os.expected_orderstats_known_rp(r, p, branch="bottom")
 ```
 
 Torch/JAX provide matching methods.
@@ -190,8 +192,9 @@ For most workloads, prefer the **efficient** evaluation path and preweighting wh
 Each backend exposes `OrderStatTransform` with:
 
 - `precompute(N, k, ..., compute_dense_matrices=False)`
-  - `k` may be integer or real
-  - internal order-stat dimension is `floor(k)` and available as `transform.k`
+  - batch/sampling `k` must be an integer (integer-valued floats such as `5.0` are accepted)
+  - fractional `k` raises a `ValueError` with suggestions to interpolate the two nearest integer transforms or use an integer L-statistic such as `TopM:m`/`BotM:m`
+  - internal order-stat dimension is available as `transform.k`
 - batch-regime order-stat methods:
   - `expected_orderstats(x)`
   - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto")`
@@ -202,7 +205,7 @@ Each backend exposes `OrderStatTransform` with:
   - `expected_lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
   - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
-  - `a` can be either a numeric vector of shape `(floor(k),)` interpreted in top-rank order (`j=1` highest), or a preset string:
+  - `a` can be either a numeric vector of shape `(k,)` interpreted in top-rank order (`j=1` highest), or a preset string:
     - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is highest rank)
     - `"BotM:m"`: equal weight on bottom `m` ranks (largest `j` ranks)
     - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
@@ -220,15 +223,22 @@ Each backend exposes `OrderStatTransform` with:
     - `"TopQuantile:q"`: top-tail Hazen quantile alias (equivalent to `TopQuantileHazen:q`).
     - `"TopQuantileWeibull:q"` / `"TopQuantileHazen:q"` / `"TopQuantileBlom:q"`: top-tail versions of the three quantile variants (equivalent to using `1-q`).
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
-    - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
+    - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= k`)
+- known-`(r,p)` helper:
+  - `OrderStatTransform.for_known_rp(k)` creates a lightweight known-`(r,p)`-only transform and permits real `k >= 1`
 - known-`(r,p)` order-stat methods:
-  - `expected_orderstats_known_rp(r, p)`
-  - `expected_orderstats_inclusion_known_rp(r, p)`
-  - `expected_orderstats_advantage_known_rp(r, p, detach_advantage=True)`
+  - `expected_orderstats_known_rp(r, p, branch=None)`
+  - `expected_orderstats_inclusion_known_rp(r, p, branch=None)`
+  - `expected_orderstats_advantage_known_rp(r, p, branch=None, detach_advantage=True)`
+  - for fractional `k`, pass `branch="top"` for ReMax/top-aligned ranks or `branch="bottom"` for ReMin/bottom-aligned ranks
 - known-`(r,p)` L-stat methods:
-  - `expected_lstat_known_rp(r, p, a)`
-  - `expected_lstat_inclusion_known_rp(r, p, a)`
-  - `expected_lstat_advantage_known_rp(r, p, a, detach_advantage=True)`
+  - `expected_lstat_known_rp(r, p, a, branch=None)`
+  - `expected_lstat_inclusion_known_rp(r, p, a, branch=None)`
+  - `expected_lstat_advantage_known_rp(r, p, a, branch=None, detach_advantage=True)`
+  - branch is inferred for logical presets such as `"ReMax"`, `"ReMin"`, `"TopM:m"`, `"BotM:m"`, `"UpperTailMean:q"`, `"LowerTailMean:q"`, `"TopQuantile:q"`, `"Quantile:q"`, and `"Rank:r"`; otherwise pass `branch` explicitly
+- direct known-`(r,p)` helpers:
+  - `known_rp_orderstats(r, p, k, branch=None)`
+  - `known_rp_lstat(r, p, k, a, branch=None)`
 
 When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can use explicit dense matmul paths; otherwise efficient prefix/suffix implementations are used.
 
