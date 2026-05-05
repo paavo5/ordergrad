@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 import pytest
 
-from ordergrad.numpy_backend import OrderStatTransform
+from ordergrad.numpy_backend import OrderStatTransform, known_rp_orderstats
 
 
 def _exact_orderstat_means(x: np.ndarray, k: int) -> np.ndarray:
@@ -323,32 +323,40 @@ def test_real_k_matches_integer_k_when_equal():
     np.testing.assert_allclose(os_real.expected_orderstats_leave_one_out(x), os_int.expected_orderstats_leave_one_out(x), atol=1e-12, rtol=1e-12)
 
 
-def test_real_k_fractional_is_supported_and_finite():
-    rng = np.random.default_rng(8)
-    N, k = 10, 4.3
-    x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
-    a = rng.normal(size=int(np.floor(k))).astype(np.float64)
+def test_sampling_fractional_k_raises_with_suggestion():
+    with pytest.raises(ValueError, match=r"Fractional k=4\.3.*nearest integer.*interpolate.*TopM.*BotM"):
+        OrderStatTransform.precompute(
+            10,
+            4.3,
+            dtype=np.float64,
+            compute_conditional=True,
+            compute_leave_one_out=True,
+            compute_dense_matrices=True,
+        )
 
-    os_frac = OrderStatTransform.precompute(
-        N,
-        k,
-        dtype=np.float64,
-        compute_conditional=True,
-        compute_leave_one_out=True,
-        compute_dense_matrices=True,
-    ).with_lstat_weights(a)
 
-    E = os_frac.expected_orderstats(x)
-    E_inc = os_frac.expected_orderstats_inclusion(x, method="matmul")
-    E_loo = os_frac.expected_orderstats_leave_one_out(x, method="matmul")
-    Adv = os_frac.expected_orderstats_advantage(x, method="matmul")
-    l_adv = os_frac.expected_lstat_advantage(x, method="matmul")
+def test_known_rp_fractional_beta_branches_and_lstat_inference():
+    r = np.array([0.1, 0.5, 0.9, 0.3, 0.7], dtype=np.float64)
+    p = np.array([0.1, 0.2, 0.3, 0.2, 0.2], dtype=np.float64)
 
-    assert np.isfinite(E).all()
-    assert np.isfinite(E_inc).all()
-    assert np.isfinite(E_loo).all()
-    assert np.isfinite(Adv).all()
-    assert np.isfinite(l_adv).all()
+    with pytest.raises(ValueError, match="branch-ambiguous"):
+        known_rp_orderstats(r, p, 1.2)
+
+    v_bottom, _, _ = known_rp_orderstats(r, p, 1.2, branch="bottom")
+    v_top, _, _ = known_rp_orderstats(r, p, 1.2, branch="top")
+
+    np.testing.assert_allclose(v_bottom, [0.5408229348036628], atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(v_top, [0.6228046235317092], atol=1e-12, rtol=1e-12)
+
+    v_bottom_36, _, _ = known_rp_orderstats(r, p, 3.6, branch="bottom")
+    v_top_36, _, _ = known_rp_orderstats(r, p, 3.6, branch="top")
+
+    np.testing.assert_allclose(v_bottom_36, [0.31136823, 0.53296927, 0.73248968], atol=1e-8, rtol=1e-8)
+    np.testing.assert_allclose(v_top_36, [0.44631190, 0.65696848, 0.82544989], atol=1e-8, rtol=1e-8)
+
+    os = OrderStatTransform.for_known_rp(1.2, dtype=np.float64)
+    np.testing.assert_allclose(os.expected_lstat_known_rp(r, p, "ReMin"), v_bottom[0], atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(os.expected_lstat_known_rp(r, p, "ReMax"), v_top[0], atol=1e-12, rtol=1e-12)
 
 
 def test_known_rp_exact_matches_bruteforce_small_case():

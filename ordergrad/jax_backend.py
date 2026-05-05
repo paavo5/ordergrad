@@ -47,25 +47,155 @@ def _build_weight_matrix(
         W = W / jnp.sum(W, axis=0, keepdims=True)
     return W
 
+_K_INTEGER_TOL = 1e-12
+
+
+def _is_integer_k(k_eff: float) -> bool:
+    return math.isfinite(float(k_eff)) and abs(float(k_eff) - round(float(k_eff))) <= _K_INTEGER_TOL
+
+
+def _fractional_sampling_k_message(context: str, k_eff: float) -> str:
+    lo = math.floor(k_eff)
+    hi = math.ceil(k_eff)
+    frac = k_eff - lo
+    return (
+        f"Fractional k={k_eff:g} is not supported for sampling-based order statistics in {context}. "
+        "Sampling/subset order statistics require an integer sample size. "
+        f"A reasonable smooth proxy is to compute the two nearest integer transforms "
+        f"k={lo} and k={hi} and interpolate their outputs with weight frac={frac:g}. "
+        "Alternatively, choose an integer L-statistic that matches your intent, such as "
+        "TopM:m at integer K for optimistic/ReMax-style transforms or BotM:m at integer K "
+        "for pessimistic/ReMin-style transforms. For known (r,p), use the beta "
+        "continuation instead: known_rp_orderstats(..., branch='top' or 'bottom') "
+        "or known_rp_lstat(..., a='ReMax'/'ReMin'/'TopM:m'/'BotM:m')."
+    )
+
+
+def _require_integer_sampling_k(k: float, *, max_k: int, context: str) -> tuple[int, float]:
+    k_eff = float(k)
+    if not math.isfinite(k_eff):
+        raise ValueError("k must be finite")
+    if not (1 <= k_eff <= max_k):
+        raise ValueError(f"Require integer k with 1 <= k <= {max_k}")
+    if not _is_integer_k(k_eff):
+        raise ValueError(_fractional_sampling_k_message(context, k_eff))
+    k_int = int(round(k_eff))
+    return k_int, float(k_int)
+
+
+def _normalize_known_rp_branch(branch: Optional[str]) -> Optional[str]:
+    if branch is None:
+        return None
+    key = str(branch).strip().lower()
+    if key in {"bottom", "lower", "remin", "min"}:
+        return "bottom"
+    if key in {"top", "upper", "remax", "max"}:
+        return "top"
+    raise ValueError("branch must be one of {'bottom', 'top', 'ReMin', 'ReMax'}")
+
+
+def _infer_known_rp_branch_from_lstat(a: Any) -> Optional[str]:
+    if not isinstance(a, str):
+        return None
+    name, _, _ = str(a).strip().partition(":")
+    key = name.strip().lower()
+    if key in {"remax", "topm", "uppertailmean", "rank"} or key.startswith("topquantile"):
+        return "top"
+    if key in {"remin", "botm", "lowertailmean"} or key.startswith("quantile"):
+        return "bottom"
+    return None
+
+
+def _resolve_known_rp_lstat_branch(a: Any, branch: Optional[str], k_eff: float) -> Optional[str]:
+    branch = _normalize_known_rp_branch(branch)
+    if branch is not None:
+        return branch
+    inferred = _infer_known_rp_branch_from_lstat(a)
+    if inferred is not None:
+        return inferred
+    if _is_integer_k(k_eff):
+        return None
+    raise ValueError(
+        f"Fractional known-(r,p) L-statistics are branch-ambiguous for k={k_eff:g}. "
+        "Pass branch='top' for upper/ReMax-style ranks or branch='bottom' for "
+        "lower/ReMin-style ranks. Logical presets infer this automatically for "
+        "ReMax, ReMin, TopM:m, BotM:m, UpperTailMean:q, LowerTailMean:q, "
+        "TopQuantile:q, Quantile:q, and Rank:r."
+    )
+
+
+def _beta_cdf_table(
+    F: jnp.ndarray,
+    alpha: jnp.ndarray,
+    beta: jnp.ndarray,
+    *,
+    dtype=jnp.float64,
+) -> jnp.ndarray:
+    """Regularized-beta CDF table with conditional-boundary conventions."""
+    F = jnp.clip(jnp.asarray(F, dtype=jnp.float64), 0.0, 1.0)
+    alpha = jnp.asarray(alpha, dtype=jnp.float64)
+    beta = jnp.asarray(beta, dtype=jnp.float64)
+
+    valid = (alpha > 0.0) & (beta > 0.0)
+    alpha_safe = jnp.where(valid, alpha, 1.0)
+    beta_safe = jnp.where(valid, beta, 1.0)
+
+    T = betainc(alpha_safe[None, :], beta_safe[None, :], F[:, None])
+    T = jnp.where(
+        alpha[None, :] <= 0.0,
+        1.0,
+        jnp.where(beta[None, :] <= 0.0, 0.0, T),
+    )
+    return T.astype(dtype)
+
+
+def _known_rp_beta_order_params(
+    k_eff: float,
+    k_ord: int,
+    branch: Optional[str],
+    *,
+    dtype=jnp.float64,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    branch = _normalize_known_rp_branch(branch)
+    if branch is None:
+        if not _is_integer_k(k_eff):
+            raise ValueError(
+                f"Fractional known-(r,p) order statistics are branch-ambiguous for k={k_eff:g}. "
+                "Use branch='top' for ReMax/top-aligned ranks or branch='bottom' "
+                "for ReMin/bottom-aligned ranks. For L-statistics, known_rp_lstat "
+                "and expected_lstat_known_rp infer the branch from logical presets "
+                "such as ReMax, ReMin, TopM:m, and BotM:m."
+            )
+        branch = "bottom"
+
+    if branch == "bottom":
+        alpha = jnp.arange(1, k_ord + 1, dtype=dtype)
+        beta = k_eff + 1.0 - alpha
+        return alpha, beta
+
+    # Top-aligned branches are returned in ascending value order.
+    # Example k=3.6: [third-best, second-best, best]
+    ell = jnp.arange(k_ord, 0, -1, dtype=dtype)
+    alpha = k_eff + 1.0 - ell
+    beta = ell
+    return alpha, beta
+
+
 
 def precompute_W_unconditional(N: int, k: float, *, dtype=jnp.float64) -> jnp.ndarray:
-    """W[m-1,j-1] = P(X_(j:k) == x_(m)) for uniform k-subset from N."""
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
-    k_eff = float(k)
+    """W[m-1,j-1] = P(X_(j:k) == x_(m)) for an integer uniform k-subset from N."""
+    k_int, k_eff = _require_integer_sampling_k(k, max_k=N, context="precompute_W_unconditional")
     log_den = _log_choose(float(N), k_eff)
 
     def log_term(m, j):
         return _log_choose(m - 1, j - 1) + _log_choose(N - m, k_eff - j)
 
-    return _build_weight_matrix(N, int(float(k)//1), log_den, log_term, dtype=dtype, renormalize_cols=True)
+    return _build_weight_matrix(N, k_int, log_den, log_term, dtype=dtype, renormalize_cols=True)
 
 
 def precompute_ABC_conditional_including_rank(N: int, k: float, *, dtype=jnp.float64) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Precompute conditional matrices A,B,C (shape (N,k))."""
-    if not (1 <= k <= N):
-        raise ValueError("Require 1 <= k <= N")
-    k_eff = float(k)
+    """Precompute conditional matrices A,B,C for an integer sample size k."""
+    k_int, k_eff = _require_integer_sampling_k(k, max_k=N, context="precompute_ABC_conditional_including_rank")
     log_den = _log_choose(float(N - 1), k_eff - 1.0)
 
     def logA(m, j):
@@ -77,41 +207,37 @@ def precompute_ABC_conditional_including_rank(N: int, k: float, *, dtype=jnp.flo
     def logC(m, j):
         return _log_choose(m - 2, j - 2) + _log_choose(N - m, k_eff - j)
 
-    A = _build_weight_matrix(N, int(float(k)//1), log_den, logA, dtype=dtype, renormalize_cols=False)
-    B = _build_weight_matrix(N, int(float(k)//1), log_den, logB, dtype=dtype, renormalize_cols=False)
-    C = _build_weight_matrix(N, int(float(k)//1), log_den, logC, dtype=dtype, renormalize_cols=False)
+    A = _build_weight_matrix(N, k_int, log_den, logA, dtype=dtype, renormalize_cols=False)
+    B = _build_weight_matrix(N, k_int, log_den, logB, dtype=dtype, renormalize_cols=False)
+    C = _build_weight_matrix(N, k_int, log_den, logC, dtype=dtype, renormalize_cols=False)
     return A, B, C
 
 
 def precompute_W_leave_one_out(N: int, k: float, *, dtype=jnp.float64) -> jnp.ndarray:
-    """Wm for reduced population size (N-1). Shape (N-1,k), columns sum to 1."""
-    if not (1 <= k <= N - 1):
-        raise ValueError("Require 1 <= k <= N-1 for leave-one-out")
-    k_eff = float(k)
+    """Wm for reduced population size (N-1) and an integer sample size k."""
+    k_int, k_eff = _require_integer_sampling_k(k, max_k=N - 1, context="precompute_W_leave_one_out")
     log_den = _log_choose(float(N - 1), k_eff)
 
     def log_term(p, j):
         return _log_choose(p - 1, j - 1) + _log_choose((N - 1) - p, k_eff - j)
 
-    return _build_weight_matrix(N - 1, int(float(k)//1), log_den, log_term, dtype=dtype, renormalize_cols=True)
+    return _build_weight_matrix(N - 1, k_int, log_den, log_term, dtype=dtype, renormalize_cols=True)
 
 
-def _binom_tail_table(k: float, F: jnp.ndarray, k_ord: int, *, dtype=jnp.float64) -> jnp.ndarray:
-    """T[t,j-1] = P(Bin(k,F_t) >= j), with t=0..m and j=1..k_ord."""
-    F = jnp.asarray(F, dtype=jnp.float64)
-    s = jnp.arange(0, k_ord + 1, dtype=jnp.float64)[:, None]
-    logF = jnp.where(F[None, :] > 0, jnp.log(F[None, :]), 0.0)
-    log1mF = jnp.where(F[None, :] < 1, jnp.log1p(-F[None, :]), 0.0)
-    term1 = jnp.where(s > 0, jnp.where(F[None, :] > 0, s * logF, -jnp.inf), 0.0)
-    term2 = jnp.where((float(k) - s) > 0, jnp.where(F[None, :] < 1, (float(k) - s) * log1mF, -jnp.inf), 0.0)
-    logpmf = _log_choose(float(k), s) + term1 + term2
-    pmf = jnp.exp(logpmf)
-    cols = [jnp.sum(pmf[j:, :], axis=0) for j in range(1, k_ord + 1)]
-    return jnp.stack(cols, axis=1).astype(dtype)
+def known_rp_orderstats(
+    r: jnp.ndarray,
+    p: jnp.ndarray,
+    k: float,
+    *,
+    branch: Optional[str] = None,
+    dtype=jnp.float64,
+):
+    """Exact known-(r,p) with-replacement beta-continuation order statistics.
 
-
-def known_rp_orderstats(r: jnp.ndarray, p: jnp.ndarray, k: float, *, dtype=jnp.float64):
-    """Exact known-(r,p) with-replacement order-statistics quantities."""
+    For integer k, the default branch returns the ordinary ascending order-statistic
+    vector [min@k, ..., max@k]. For fractional k, pass branch='bottom' for
+    bottom-aligned/ReMin ranks or branch='top' for top-aligned/ReMax ranks.
+    """
     r = jnp.asarray(r, dtype=jnp.float64)
     p = jnp.asarray(p, dtype=jnp.float64)
     if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
@@ -121,11 +247,13 @@ def known_rp_orderstats(r: jnp.ndarray, p: jnp.ndarray, k: float, *, dtype=jnp.f
     p = p / jnp.sum(p)
     m = int(r.shape[0])
     k_eff = float(k)
-    k_ord = int(jnp.floor(k_eff))
+    k_ord = int(math.floor(k_eff))
     if not (k_eff >= 1):
         raise ValueError("Require real k >= 1")
     if k_ord < 1:
         raise ValueError("floor(k) must be >= 1")
+
+    alpha, beta = _known_rp_beta_order_params(k_eff, k_ord, branch, dtype=jnp.float64)
 
     perm = jnp.argsort(r, stable=True)
     inv = jnp.empty_like(perm)
@@ -134,24 +262,20 @@ def known_rp_orderstats(r: jnp.ndarray, p: jnp.ndarray, k: float, *, dtype=jnp.f
     ps = p[perm]
 
     F = jnp.concatenate([jnp.array([0.0], dtype=jnp.float64), jnp.cumsum(ps)])
-    T_k = _binom_tail_table(k_eff, F, k_ord, dtype=dtype)
-    W = T_k[1:, :] - T_k[:-1, :]
+    T = _beta_cdf_table(F, alpha, beta, dtype=dtype)
+    W = T[1:, :] - T[:-1, :]
     v = rs @ W
 
-    T_km1 = _binom_tail_table(k_eff - 1.0, F, k_ord, dtype=dtype)
+    # Conditional CDF table with one draw fixed. If the fixed draw is <= the
+    # threshold, it contributes one lower-side count: alpha -> alpha - 1.
+    # Otherwise it contributes one upper-side count: beta -> beta - 1.
+    T_le = _beta_cdf_table(F, alpha - 1.0, beta, dtype=dtype)
+    T_gt = _beta_cdf_table(F, alpha, beta - 1.0, dtype=dtype)
     q_sorted = []
     for b in range(m):
-        delta = jnp.concatenate([jnp.array([0], dtype=jnp.int32), (rs[b] <= rs).astype(jnp.int32)])
-        cols = []
-        rows = jnp.arange(m + 1)
-        for j in range(1, k_ord + 1):
-            need = j - delta
-            idx = jnp.clip(need - 1, 0, k_ord - 1)
-            take = T_km1[rows, idx]
-            col = jnp.where(need <= 0, 1.0, jnp.where(need <= k_ord, take, 0.0))
-            cols.append(col)
-        Q = jnp.stack(cols, axis=1)
-        Wq = Q[1:, :] - Q[:-1, :]
+        forced_le = jnp.concatenate([jnp.array([False]), rs[b] <= rs])
+        G = jnp.where(forced_le[:, None], T_le, T_gt)
+        Wq = G[1:, :] - G[:-1, :]
         q_sorted.append(rs @ Wq)
     q_sorted = jnp.stack(q_sorted, axis=0)
     adv_sorted = q_sorted - v[None, :]
@@ -179,6 +303,18 @@ class OrderStatTransform:
     M_inc_a: Optional[jnp.ndarray] = None
     M_loo_a: Optional[jnp.ndarray] = None
     M_adv_a: Optional[jnp.ndarray] = None
+    sampling_valid: bool = True
+
+    def _require_sampling_valid(self, context: str) -> None:
+        if not self.sampling_valid:
+            raise ValueError(
+                f"{context} is a sampling-based method, but this transform was created "
+                "for fractional/known-(r,p)-only use. Sampling-based order statistics "
+                "require integer k. Use OrderStatTransform.precompute(N, floor(k)) and "
+                "OrderStatTransform.precompute(N, ceil(k)) and interpolate their outputs, "
+                "or choose an integer L-statistic such as TopM:m or BotM:m. For known "
+                "(r,p), call the *_known_rp methods or known_rp_orderstats/known_rp_lstat."
+            )
 
     @classmethod
     def precompute(
@@ -191,12 +327,7 @@ class OrderStatTransform:
         compute_leave_one_out: bool = True,
         compute_dense_matrices: bool = False,
     ) -> "OrderStatTransform":
-        k_eff = float(k)
-        k_ord = int(k_eff // 1)
-        if not (1 <= k_eff <= N):
-            raise ValueError("Require real k with 1 <= k <= N")
-        if not (1 <= k_ord <= N):
-            raise ValueError("floor(k) must satisfy 1 <= floor(k) <= N")
+        k_ord, k_eff = _require_integer_sampling_k(k, max_k=N, context="OrderStatTransform.precompute")
         W = precompute_W_unconditional(N, k_eff, dtype=dtype)
 
         A = B = C = None
@@ -206,7 +337,7 @@ class OrderStatTransform:
         Wm = None
         if compute_leave_one_out:
             if k_eff > N - 1:
-                raise ValueError("Leave-one-out requires real k <= N-1")
+                raise ValueError("Leave-one-out requires integer k <= N-1")
             Wm = precompute_W_leave_one_out(N, k_eff, dtype=dtype)
 
         M_inc = M_loo = M_adv = None
@@ -217,6 +348,32 @@ class OrderStatTransform:
                 M_adv = M_inc - M_loo
 
         return cls(N=N, k=k_ord, k_eff=k_eff, W=W, A=A, B=B, C=C, Wm=Wm, M_inc=M_inc, M_loo=M_loo, M_adv=M_adv)
+
+    @classmethod
+    def precompute_known_rp(cls, k: float, *, dtype=jnp.float64) -> "OrderStatTransform":
+        """Create a lightweight transform for known-(r,p) methods with real k.
+
+        Sampling-based methods on the returned object intentionally raise, because
+        fractional sample sizes do not define a literal sampled subset.
+        """
+        k_eff = float(k)
+        if not (k_eff >= 1.0):
+            raise ValueError("Require real k >= 1")
+        k_ord = int(math.floor(k_eff))
+        if k_ord < 1:
+            raise ValueError("floor(k) must be >= 1")
+        W = jnp.zeros((0, k_ord), dtype=dtype)
+        return cls(N=0, k=k_ord, k_eff=k_eff, W=W, A=None, B=None, C=None, Wm=None, sampling_valid=False)
+
+    @classmethod
+    def for_known_rp(cls, k: float, *, dtype=jnp.float64) -> "OrderStatTransform":
+        """Construct a known-(r,p)-only transform for real k.
+
+        Sampling/batch methods are intentionally disabled on the returned object;
+        use the *_known_rp methods with an explicit branch for ambiguous
+        fractional-k order statistics.
+        """
+        return cls.precompute_known_rp(k, dtype=dtype)
 
     @staticmethod
     def _build_dense_inclusion_matrix(A: jnp.ndarray, B: jnp.ndarray, C: jnp.ndarray) -> jnp.ndarray:
@@ -259,10 +416,12 @@ class OrderStatTransform:
     # -------- order-statistics expectations --------
 
     def expected_orderstats(self, x: jnp.ndarray) -> jnp.ndarray:
+        self._require_sampling_valid("expected_orderstats")
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
     def expected_orderstats_inclusion(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+        self._require_sampling_valid("expected_orderstats_inclusion")
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -288,6 +447,7 @@ class OrderStatTransform:
         return E_by_rank[inv, :]
 
     def expected_orderstats_leave_one_out(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+        self._require_sampling_valid("expected_orderstats_leave_one_out")
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -468,6 +628,7 @@ class OrderStatTransform:
         return a[::-1]
 
     def lstat_weight_by_rank(self, a: Optional[Any] = None) -> jnp.ndarray:
+        self._require_sampling_valid("lstat_weight_by_rank")
         if a is None:
             if not hasattr(self, "Wa") or self.Wa is None:
                 raise ValueError("No preweighted l-statistic vector is available. Pass a or use with_lstat_weights().")
@@ -476,16 +637,19 @@ class OrderStatTransform:
         return self.W @ a
 
     def lstat_weight_by_item(self, x: jnp.ndarray, a: Optional[Any] = None) -> jnp.ndarray:
+        self._require_sampling_valid("lstat_weight_by_item")
         _, inv = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
     def expected_lstat(self, x: jnp.ndarray, a: Optional[Any] = None) -> jnp.ndarray:
+        self._require_sampling_valid("expected_lstat")
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return jnp.sum(x_sorted * w_rank)
 
     def with_lstat_weights(self, a: Any) -> "OrderStatTransform":
+        self._require_sampling_valid("with_lstat_weights")
         a = self._coerce_a(a)
         out = self.__class__(
             N=self.N,
@@ -499,6 +663,7 @@ class OrderStatTransform:
             M_inc=self.M_inc,
             M_loo=self.M_loo,
             M_adv=self.M_adv,
+            sampling_valid=self.sampling_valid,
         )
         object.__setattr__(out, "Wa", self.W @ a)
         if self.A is not None and self.B is not None and self.C is not None:
@@ -520,6 +685,7 @@ class OrderStatTransform:
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
     def expected_lstat_inclusion(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
+        self._require_sampling_valid("expected_lstat_inclusion")
         if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             xa = x_sorted * self.Aa
@@ -539,6 +705,7 @@ class OrderStatTransform:
         return E_inc @ a
 
     def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
+        self._require_sampling_valid("expected_lstat_leave_one_out")
         if a is None and hasattr(self, "Wma") and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             p1 = x_sorted[:-1] * self.Wma
@@ -558,6 +725,7 @@ class OrderStatTransform:
         return E_loo @ a
 
     def expected_orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
+        self._require_sampling_valid("expected_orderstats_advantage")
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
         if method in {"matmul", "auto"} and self.M_adv is not None:
@@ -567,35 +735,74 @@ class OrderStatTransform:
         out = self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
         return jax.lax.stop_gradient(out) if detach_advantage else out
 
-    def expected_orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
-        v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+    def expected_orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, branch: Optional[str] = None) -> jnp.ndarray:
+        v, _, _ = known_rp_orderstats(r, p, self.k_eff, branch=branch, dtype=self.W.dtype)
         return v
 
-    def expected_orderstats_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
-        _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+    def expected_orderstats_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, branch: Optional[str] = None) -> jnp.ndarray:
+        _, q, _ = known_rp_orderstats(r, p, self.k_eff, branch=branch, dtype=self.W.dtype)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, detach_advantage: bool = True) -> jnp.ndarray:
-        _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
+    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, branch: Optional[str] = None, detach_advantage: bool = True) -> jnp.ndarray:
+        _, _, adv = known_rp_orderstats(r, p, self.k_eff, branch=branch, dtype=self.W.dtype)
         return jax.lax.stop_gradient(adv) if detach_advantage else adv
 
-    def expected_lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
+    def expected_lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, branch: Optional[str] = None) -> jnp.ndarray:
+        branch = _resolve_known_rp_lstat_branch(a, branch, self.k_eff)
         a = self._coerce_a(a)
-        return self.expected_orderstats_known_rp(r, p) @ a
+        return self.expected_orderstats_known_rp(r, p, branch=branch) @ a
 
-    def expected_lstat_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
+    def expected_lstat_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, branch: Optional[str] = None) -> jnp.ndarray:
+        branch = _resolve_known_rp_lstat_branch(a, branch, self.k_eff)
         a = self._coerce_a(a)
-        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+        return self.expected_orderstats_inclusion_known_rp(r, p, branch=branch) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, detach_advantage: bool = True) -> jnp.ndarray:
+    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, branch: Optional[str] = None, detach_advantage: bool = True) -> jnp.ndarray:
+        branch = _resolve_known_rp_lstat_branch(a, branch, self.k_eff)
         a = self._coerce_a(a)
-        out = self.expected_orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
+        out = self.expected_orderstats_advantage_known_rp(r, p, branch=branch, detach_advantage=detach_advantage) @ a
         return jax.lax.stop_gradient(out) if detach_advantage else out
 
     def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
+        self._require_sampling_valid("expected_lstat_advantage")
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = (self.M_adv_a @ x_sorted)[inv]
             return jax.lax.stop_gradient(out) if detach_advantage else out
         out = self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
         return jax.lax.stop_gradient(out) if detach_advantage else out
+
+
+def known_rp_lstat(
+    r: jnp.ndarray,
+    p: jnp.ndarray,
+    k: float,
+    a: Any,
+    *,
+    branch: Optional[str] = None,
+    dtype=jnp.float64,
+):
+    """Known-(r,p) L-statistic under the beta order-statistic continuation.
+
+    Returns (v, q, adv), where v is scalar, q has shape (num_actions,), and
+    adv=q-v. For fractional k, branch is inferred for logical presets such as
+    ReMax/ReMin/TopM/BotM; otherwise pass branch='top' or branch='bottom'.
+    """
+    k_eff = float(k)
+    if not (k_eff >= 1.0):
+        raise ValueError("Require real k >= 1")
+    k_ord = int(math.floor(k_eff))
+    if k_ord < 1:
+        raise ValueError("floor(k) must be >= 1")
+
+    branch = _resolve_known_rp_lstat_branch(a, branch, k_eff)
+    if isinstance(a, str):
+        weights = OrderStatTransform._preset_lstat_weights(k_ord, a, dtype=dtype)
+    else:
+        weights = jnp.asarray(a, dtype=dtype)
+        if weights.shape != (k_ord,):
+            raise ValueError(f"a must be shape ({k_ord},)")
+        weights = weights[::-1]
+
+    v, q, adv = known_rp_orderstats(r, p, k_eff, branch=branch, dtype=dtype)
+    return v @ weights, q @ weights, adv @ weights

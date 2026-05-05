@@ -273,22 +273,40 @@ def test_torch_real_k_matches_integer_k_when_equal():
 
 
 @pytest.mark.torch
-def test_torch_real_k_fractional_is_supported():
-    rng = np.random.default_rng(20)
-    N, k = 15, 5.4
-    x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
+def test_torch_sampling_fractional_k_raises_with_suggestion():
+    with pytest.raises(ValueError, match=r"Fractional k=5\.4.*nearest integer.*interpolate.*TopM.*BotM"):
+        TH.precompute(
+            15,
+            5.4,
+            dtype=torch.float64,
+            compute_conditional=True,
+            compute_leave_one_out=True,
+            compute_dense_matrices=True,
+        )
 
-    x_th = torch.tensor(x_np, dtype=torch.float64)
-    a_th = torch.tensor(a_np, dtype=torch.float64)
 
-    os_frac = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
+@pytest.mark.torch
+def test_torch_known_rp_fractional_matches_numpy_branches():
+    r_np = np.array([0.1, 0.5, 0.9, 0.3, 0.7], dtype=np.float64)
+    p_np = np.array([0.1, 0.2, 0.3, 0.2, 0.2], dtype=np.float64)
+    r_th = torch.tensor(r_np, dtype=torch.float64)
+    p_th = torch.tensor(p_np, dtype=torch.float64)
 
-    assert np.isfinite(os_frac.expected_orderstats(x_th).detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_leave_one_out(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy()).all()
+    os_np = NP.for_known_rp(1.2, dtype=np.float64)
+    os_th = TH.for_known_rp(1.2, dtype=torch.float64)
+
+    np.testing.assert_allclose(
+        os_th.expected_lstat_known_rp(r_th, p_th, "ReMax").detach().cpu().numpy(),
+        os_np.expected_lstat_known_rp(r_np, p_np, "ReMax"),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os_th.expected_lstat_known_rp(r_th, p_th, "ReMin").detach().cpu().numpy(),
+        os_np.expected_lstat_known_rp(r_np, p_np, "ReMin"),
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
 @pytest.mark.torch
