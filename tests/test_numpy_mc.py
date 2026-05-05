@@ -176,3 +176,57 @@ def test_batch_advantage_matches_known_rp_advantage_in_expectation():
             f"Advantage MC check failed at arm={bad[0]}, j={bad[1]+1}: "
             f"diff={diff[bad]:.6g}, tol={tol[bad]:.6g}."
         )
+
+
+def test_sampling_fractional_k_raises_with_suggestion():
+    with pytest.raises(ValueError, match=r"Fractional k=4\.7"):
+        OrderStatTransform.precompute(
+            20,
+            4.7,
+            dtype=np.float64,
+            compute_conditional=False,
+            compute_leave_one_out=False,
+        )
+
+
+def test_known_rp_fractional_k_is_branch_aware_and_distinct_from_floor_k():
+    r = np.array([-1.2, -0.2, 0.8, 2.3], dtype=np.float64)
+    p = np.array([0.15, 0.35, 0.30, 0.20], dtype=np.float64)
+
+    k_real = 4.7
+    k_floor = int(np.floor(k_real))
+
+    os_real = OrderStatTransform.for_known_rp(k_real, dtype=np.float64)
+    os_floor = OrderStatTransform.for_known_rp(k_floor, dtype=np.float64)
+
+    # Fractional full order-statistics are ambiguous without a branch.
+    with pytest.raises(ValueError, match="branch"):
+        os_real.expected_orderstats_known_rp(r, p)
+
+    v_floor = os_floor.expected_orderstats_known_rp(r, p)
+
+    v_bottom = os_real.expected_orderstats_known_rp(r, p, branch="bottom")
+    v_top = os_real.expected_orderstats_known_rp(r, p, branch="top")
+
+    assert v_bottom.shape == (k_floor,)
+    assert v_top.shape == (k_floor,)
+
+    assert np.all(np.isfinite(v_bottom))
+    assert np.all(np.isfinite(v_top))
+
+    # Fractional beta branches should not collapse to floor(k).
+    assert not np.allclose(v_bottom, v_floor)
+    assert not np.allclose(v_top, v_floor)
+
+    mean = float(np.dot(r, p))
+
+    remin = os_real.expected_lstat_known_rp(r, p, "ReMin")
+    remax = os_real.expected_lstat_known_rp(r, p, "ReMax")
+
+    # Direction sanity checks.
+    assert remin < mean
+    assert remax > mean
+
+    # Preset branch inference should match the corresponding beta branch.
+    np.testing.assert_allclose(remin, v_bottom[0], atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(remax, v_top[-1], atol=1e-12, rtol=1e-12)
