@@ -388,3 +388,53 @@ def test_known_rp_exact_matches_bruteforce_small_case():
 
     np.testing.assert_allclose(adv, q - v[None, :], atol=1e-12, rtol=1e-12)
     np.testing.assert_allclose((p[:, None] * adv).sum(axis=0), np.zeros_like(v), atol=1e-12, rtol=1e-12)
+
+
+def test_fractional_range_lstat_presets_match_manual_vectors_and_equivalences():
+    k = 10
+    os = OrderStatTransform.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    x = np.linspace(-1.0, 1.0, k, dtype=np.float64)
+
+    expected = {
+        "RangeUpperTailMean:0.2:0.5": np.array([0, 0, 1 / 3, 1 / 3, 1 / 3, 0, 0, 0, 0, 0], dtype=np.float64),
+        "RangeLowerTailMean:0.2:0.5": np.array([0, 0, 0, 0, 0, 1 / 3, 1 / 3, 1 / 3, 0, 0], dtype=np.float64),
+        "TrimmedMeanFrac:0.2:0.8": np.array([0, 0, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 0, 0], dtype=np.float64),
+    }
+
+    for spec, a in expected.items():
+        np.testing.assert_allclose(os._preset_lstat_weights(k, spec, dtype=np.float64)[::-1], a, atol=1e-12, rtol=1e-12)
+        np.testing.assert_allclose(os.expected_lstat(x, spec), os.expected_lstat(x, a), atol=1e-12, rtol=1e-12)
+
+    np.testing.assert_allclose(
+        os._preset_lstat_weights(k, "RangeUpperTailMean:0.0:0.3", dtype=np.float64),
+        os._preset_lstat_weights(k, "UpperTailMean:0.3", dtype=np.float64),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os._preset_lstat_weights(k, "RangeLowerTailMean:0.0:0.3", dtype=np.float64),
+        os._preset_lstat_weights(k, "LowerTailMean:0.3", dtype=np.float64),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        os._preset_lstat_weights(k, "TrimmedMeanFrac:0.2:0.8", dtype=np.float64),
+        os._preset_lstat_weights(k, "TrimM:2", dtype=np.float64),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "RangeLowerTailMean:0.2:0.2",
+        "RangeLowerTailMean:0.3:0.2",
+        "RangeLowerTailMean:-0.1:0.2",
+        "RangeLowerTailMean:0.1:1.2",
+        "TrimmedMeanFrac:0.6:0.4",
+    ],
+)
+def test_fractional_range_lstat_presets_reject_invalid_ranges(spec):
+    with pytest.raises(ValueError, match="lo|hi"):
+        OrderStatTransform._preset_lstat_weights(10, spec, dtype=np.float64)

@@ -342,3 +342,19 @@ def test_torch_tailmean_presets_match_numpy_reference():
         w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
         w_th = os_th._preset_lstat_weights(k, spec, dtype=torch.float64, device=torch.device("cpu"))
         np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.torch
+def test_torch_fractional_range_lstat_presets_match_numpy_reference():
+    k = 10
+    os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
+    os_th = TH.precompute(k, k, dtype=torch.float64, compute_conditional=False, compute_leave_one_out=False)
+
+    for spec in [
+        "RangeUpperTailMean:0.2:0.5",
+        "RangeLowerTailMean:0.2:0.5",
+        "TrimmedMeanFrac:0.2:0.8",
+    ]:
+        w_np = os_np._preset_lstat_weights(k, spec, dtype=np.float64)
+        w_th = os_th._preset_lstat_weights(k, spec, dtype=torch.float64, device=torch.device("cpu"))
+        np.testing.assert_allclose(w_th.detach().cpu().numpy(), w_np, rtol=1e-12, atol=1e-12)
