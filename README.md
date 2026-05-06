@@ -125,8 +125,9 @@ l_adv = os.expected_lstat_advantage(x, a)          # (N,)
 
 # Preset shorthands are also supported for a:
 #   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m", "TopBot:m",
-#   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "QuantileWeibull:q", "QuantileHazen:q", "QuantileBlom:q", "TopQuantile:q", "TopQuantileWeibull:q", "TopQuantileHazen:q", "TopQuantileBlom:q", "UpperTailMean:q", "LowerTailMean:q", "HarrellDavis:q",
-#   "GiniMeanDifference" (or "GMD"), "LMoment:r"
+#   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "QuantileWeibull:q", "QuantileHazen:q", "QuantileBlom:q", "TopQuantile:q", "TopQuantileWeibull:q", "TopQuantileHazen:q", "TopQuantileBlom:q", "UpperTailMean:q", "LowerTailMean:q",
+#   "RangeUpperTailMean:lo:hi", "RangeLowerTailMean:lo:hi", "TrimmedMeanFrac:lo:hi",
+#   "HarrellDavis:q", "GiniMeanDifference" (or "GMD"), "LMoment:r"
 l_top2 = os.expected_lstat(x, "TopM:2")
 ```
 
@@ -215,6 +216,9 @@ Each backend exposes `OrderStatTransform` with:
     - `"Quantile:q"`: default quantile preset (Hazen plotting position, equivalent to `QuantileHazen:q`) using standard quantile `q` (fraction below threshold).
     - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
     - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)
+    - `"RangeUpperTailMean:lo:hi"`: equal-weight band inside the upper tail after dropping approximately the top `lo` fraction and keeping through the `hi` upper-tail cutoff (`0 <= lo < hi <= 1`)
+    - `"RangeLowerTailMean:lo:hi"`: equal-weight band inside the lower tail, keeping the range between lower-tail fractions `lo` and `hi` (`0 <= lo < hi <= 1`)
+    - `"TrimmedMeanFrac:lo:hi"`: central trimmed mean after dropping approximately the top `lo` fraction and bottom `1 - hi` fraction (`0 <= lo < hi <= 1`)
     - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at standard quantile `q in [0,1]`
     - `"QuantileWeibull:q"` / `"QuantileHazen:q"` / `"QuantileBlom:q"`: Weibull (`a=0`), Hazen (`a=0.5`), and Blom (`a=3/8`) probability-plot quantile interpolation variants.
     - `"TopQuantile:q"`: top-tail Hazen quantile alias (equivalent to `TopQuantileHazen:q`).

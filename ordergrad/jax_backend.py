@@ -408,6 +408,31 @@ class OrderStatTransform:
                 return out.at[k - m :].set(1.0 / m)
             return out.at[:m].set(1.0 / m)
 
+        if key in {"rangeuppertailmean", "rangelowertailmean", "trimmedmeanfrac"}:
+            parts = m_txt.split(":")
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                raise ValueError(f"Preset '{name}' requires ':lo:hi' (e.g. {name}:0.02:0.20)")
+            lo = float(parts[0])
+            hi = float(parts[1])
+            if not (0.0 <= lo < hi <= 1.0):
+                raise ValueError(f"{name}:lo:hi requires 0 <= lo < hi <= 1 (got lo={lo}, hi={hi}, k_ord={k})")
+            out = jnp.zeros((k,), dtype=dtype)
+            if key in {"rangeuppertailmean", "rangelowertailmean"}:
+                m_lo = int(math.floor(lo * k + 1e-12))
+                m_hi = int(math.ceil(hi * k - 1e-12))
+                width = m_hi - m_lo
+                if width < 1:
+                    raise ValueError(f"{name}:lo:hi selected an empty range (lo={lo}, hi={hi}, k_ord={k})")
+                if key == "rangeuppertailmean":
+                    return out.at[k - m_hi : k - m_lo].set(1.0 / width)
+                return out.at[m_lo:m_hi].set(1.0 / width)
+            start = int(math.floor(lo * k + 1e-12))
+            end = k - int(math.floor((1.0 - hi) * k + 1e-12))
+            width = end - start
+            if width < 1:
+                raise ValueError(f"{name}:lo:hi selected an empty range (lo={lo}, hi={hi}, k_ord={k})")
+            return out.at[k - end : k - start].set(1.0 / width)
+
         if key == "lmoment":
             if not m_txt.strip():
                 raise ValueError("Preset 'LMoment' requires ':r' (e.g. LMoment:2)")
@@ -452,7 +477,7 @@ class OrderStatTransform:
             out = out.at[m : k - m].set(1.0 / (k - 2 * m))
         else:
             raise ValueError(
-                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q (Hazen default), QuantileWeibull:q, QuantileHazen:q, QuantileBlom:q, TopQuantile:q (Hazen default), TopQuantileWeibull:q, TopQuantileHazen:q, TopQuantileBlom:q, UpperTailMean:q, LowerTailMean:q, HarrellDavis:q, GiniMeanDifference, LMoment:r"
+                "Unknown l-stat preset. Supported: TopM:m, BotM:m, TrimM:m, WinsorizedM:m, MidrangeM:m, TopBot:m, ReMax, ReMin, Median, Rank:r, Quantile:q (Hazen default), QuantileWeibull:q, QuantileHazen:q, QuantileBlom:q, TopQuantile:q (Hazen default), TopQuantileWeibull:q, TopQuantileHazen:q, TopQuantileBlom:q, UpperTailMean:q, LowerTailMean:q, RangeUpperTailMean:lo:hi, RangeLowerTailMean:lo:hi, TrimmedMeanFrac:lo:hi, HarrellDavis:q, GiniMeanDifference, LMoment:r"
             )
         return out
 
