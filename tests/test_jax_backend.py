@@ -30,15 +30,15 @@ def test_jax_matches_numpy(N, k):
     x_jx = jnp.asarray(x_np, dtype=jnp.float64)
 
     E_np = os_np.expected_orderstats(x_np)
-    E_jx = np.asarray(os_jx.expected_orderstats(x_jx))
+    E_jx = np.asarray(jax.jit(os_jx.expected_orderstats)(x_jx))
     np.testing.assert_allclose(E_jx, E_np, rtol=1e-12, atol=1e-12)
 
     E_inc_np = os_np.expected_orderstats_inclusion(x_np)
-    E_inc_jx = np.asarray(os_jx.expected_orderstats_inclusion(x_jx))
+    E_inc_jx = np.asarray(jax.jit(os_jx.expected_orderstats_inclusion)(x_jx))
     np.testing.assert_allclose(E_inc_jx, E_inc_np, rtol=1e-12, atol=1e-12)
 
     E_loo_np = os_np.expected_orderstats_leave_one_out(x_np)
-    E_loo_jx = np.asarray(os_jx.expected_orderstats_leave_one_out(x_jx))
+    E_loo_jx = np.asarray(jax.jit(os_jx.expected_orderstats_leave_one_out)(x_jx))
     np.testing.assert_allclose(E_loo_jx, E_loo_np, rtol=1e-12, atol=1e-12)
 
 
@@ -56,8 +56,8 @@ def test_jax_gradient_matches_rank_weights():
     def f(z):
         return os_jx.expected_lstat(z, a)
 
-    grad = np.asarray(jax.grad(f)(x))
-    w = np.asarray(os_jx.lstat_weight_by_item(x, a))
+    grad = np.asarray(jax.jit(jax.grad(f))(x))
+    w = np.asarray(jax.jit(os_jx.lstat_weight_by_item)(x, a))
 
     np.testing.assert_allclose(grad, w, rtol=1e-10, atol=1e-10)
 
@@ -74,8 +74,8 @@ def test_jax_advantage_detach_flag_controls_gradient_flow():
     a = jnp.asarray(a_np, dtype=jnp.float64)
     c = jnp.asarray(rng.normal(size=N), dtype=jnp.float64)
 
-    g_det = np.asarray(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=True)))(x))
-    g_att = np.asarray(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=False)))(x))
+    g_det = np.asarray(jax.jit(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=True))))(x))
+    g_att = np.asarray(jax.jit(jax.grad(lambda z: jnp.dot(c, os_jx.expected_lstat_advantage(z, a, detach_advantage=False))))(x))
 
     np.testing.assert_allclose(g_det, np.zeros_like(g_det), atol=1e-12, rtol=1e-12)
     assert not np.allclose(g_att, 0.0, atol=1e-10, rtol=1e-10)
@@ -94,18 +94,18 @@ def test_jax_lstat_and_advantage_match_numpy_with_and_without_preweights():
     x_jx = jnp.asarray(x_np, dtype=jnp.float64)
     a_jx = jnp.asarray(a_np, dtype=jnp.float64)
 
-    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat(x_jx, a_jx)), os_np.expected_lstat(x_np, a_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_leave_one_out(x_jx, a_jx)), os_np.expected_lstat_leave_one_out(x_np, a_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_advantage(x_jx)), os_np.expected_orderstats_advantage(x_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_advantage(x_jx, a_jx)), os_np.expected_lstat_advantage(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_lstat)(x_jx, a_jx)), os_np.expected_lstat(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_lstat_inclusion)(x_jx, a_jx)), os_np.expected_lstat_inclusion(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_lstat_leave_one_out)(x_jx, a_jx)), os_np.expected_lstat_leave_one_out(x_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_orderstats_advantage)(x_jx)), os_np.expected_orderstats_advantage(x_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_lstat_advantage)(x_jx, a_jx)), os_np.expected_lstat_advantage(x_np, a_np), rtol=1e-12, atol=1e-12)
 
     # Preweighted path should match explicit-a path.
     os_jx_w = os_jx.with_lstat_weights(a_jx)
-    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat(x_jx)), np.asarray(os_jx.expected_lstat(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_inclusion(x_jx)), np.asarray(os_jx.expected_lstat_inclusion(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_leave_one_out(x_jx)), np.asarray(os_jx.expected_lstat_leave_one_out(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx_w.expected_lstat_advantage(x_jx)), np.asarray(os_jx.expected_lstat_advantage(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx_w.expected_lstat)(x_jx)), np.asarray(jax.jit(os_jx.expected_lstat)(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx_w.expected_lstat_inclusion)(x_jx)), np.asarray(jax.jit(os_jx.expected_lstat_inclusion)(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx_w.expected_lstat_leave_one_out)(x_jx)), np.asarray(jax.jit(os_jx.expected_lstat_leave_one_out)(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx_w.expected_lstat_advantage)(x_jx)), np.asarray(jax.jit(os_jx.expected_lstat_advantage)(x_jx, a_jx)), rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.jax
@@ -122,61 +122,61 @@ def test_jax_dense_matmul_variants_match_efficient_and_auto():
     nodense = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=False)
 
     np.testing.assert_allclose(
-        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="matmul")),
-        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_inclusion(x, method="matmul"))(x_jx)),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_inclusion(x, method="efficient"))(x_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(dense.expected_orderstats_leave_one_out(x_jx, method="matmul")),
-        np.asarray(dense.expected_orderstats_leave_one_out(x_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_leave_one_out(x, method="matmul"))(x_jx)),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_leave_one_out(x, method="efficient"))(x_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(dense.expected_orderstats_advantage(x_jx, method="matmul")),
-        np.asarray(dense.expected_orderstats_advantage(x_jx, method="efficient")),
-        rtol=1e-12,
-        atol=1e-12,
-    )
-
-    np.testing.assert_allclose(
-        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="auto")),
-        np.asarray(dense.expected_orderstats_inclusion(x_jx, method="matmul")),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_advantage(x, method="matmul"))(x_jx)),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_advantage(x, method="efficient"))(x_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
 
     np.testing.assert_allclose(
-        np.asarray(nodense.expected_orderstats_inclusion(x_jx, method="matmul")),
-        np.asarray(nodense.expected_orderstats_inclusion(x_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_inclusion(x, method="auto"))(x_jx)),
+        np.asarray(jax.jit(lambda x: dense.expected_orderstats_inclusion(x, method="matmul"))(x_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
 
     np.testing.assert_allclose(
-        np.asarray(dense.expected_lstat_inclusion(x_jx, a_jx, method="matmul")),
-        np.asarray(dense.expected_lstat_inclusion(x_jx, a_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x: nodense.expected_orderstats_inclusion(x, method="matmul"))(x_jx)),
+        np.asarray(jax.jit(lambda x: nodense.expected_orderstats_inclusion(x, method="efficient"))(x_jx)),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_inclusion(x, a, method="matmul"))(x_jx, a_jx)),
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_inclusion(x, a, method="efficient"))(x_jx, a_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(dense.expected_lstat_leave_one_out(x_jx, a_jx, method="matmul")),
-        np.asarray(dense.expected_lstat_leave_one_out(x_jx, a_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_leave_one_out(x, a, method="matmul"))(x_jx, a_jx)),
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_leave_one_out(x, a, method="efficient"))(x_jx, a_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np.asarray(dense.expected_lstat_advantage(x_jx, a_jx, method="matmul")),
-        np.asarray(dense.expected_lstat_advantage(x_jx, a_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_advantage(x, a, method="matmul"))(x_jx, a_jx)),
+        np.asarray(jax.jit(lambda x, a: dense.expected_lstat_advantage(x, a, method="efficient"))(x_jx, a_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
 
     dense_w = dense.with_lstat_weights(a_jx)
     np.testing.assert_allclose(
-        np.asarray(dense_w.expected_lstat_advantage(x_jx, method="matmul")),
-        np.asarray(dense_w.expected_lstat_advantage(x_jx, method="efficient")),
+        np.asarray(jax.jit(lambda x: dense_w.expected_lstat_advantage(x, method="matmul"))(x_jx)),
+        np.asarray(jax.jit(lambda x: dense_w.expected_lstat_advantage(x, method="efficient"))(x_jx)),
         rtol=1e-12,
         atol=1e-12,
     )
@@ -200,10 +200,10 @@ def test_jax_known_rp_matches_numpy():
     p_jx = jnp.asarray(p_np, dtype=jnp.float64)
     a_jx = jnp.asarray(a_np, dtype=jnp.float64)
 
-    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_known_rp(r_jx, p_jx)), os_np.expected_orderstats_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_inclusion_known_rp(r_jx, p_jx)), os_np.expected_orderstats_inclusion_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_orderstats_advantage_known_rp(r_jx, p_jx)), os_np.expected_orderstats_advantage_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_jx.expected_lstat_advantage_known_rp(r_jx, p_jx, a_jx)), os_np.expected_lstat_advantage_known_rp(r_np, p_np, a_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_orderstats_known_rp)(r_jx, p_jx)), os_np.expected_orderstats_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_orderstats_inclusion_known_rp)(r_jx, p_jx)), os_np.expected_orderstats_inclusion_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_orderstats_advantage_known_rp)(r_jx, p_jx)), os_np.expected_orderstats_advantage_known_rp(r_np, p_np), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_jx.expected_lstat_advantage_known_rp)(r_jx, p_jx, a_jx)), os_np.expected_lstat_advantage_known_rp(r_np, p_np, a_np), rtol=1e-12, atol=1e-12)
 
 
 def test_jax_real_k_matches_integer_k_when_equal():
@@ -215,9 +215,9 @@ def test_jax_real_k_matches_integer_k_when_equal():
     os_int = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
     os_real = JX.precompute(N, float(k), dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True)
 
-    np.testing.assert_allclose(np.asarray(os_real.expected_orderstats(x_jx)), np.asarray(os_int.expected_orderstats(x_jx)), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_real.expected_orderstats_inclusion(x_jx)), np.asarray(os_int.expected_orderstats_inclusion(x_jx)), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(os_real.expected_orderstats_leave_one_out(x_jx)), np.asarray(os_int.expected_orderstats_leave_one_out(x_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_real.expected_orderstats)(x_jx)), np.asarray(jax.jit(os_int.expected_orderstats)(x_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_real.expected_orderstats_inclusion)(x_jx)), np.asarray(jax.jit(os_int.expected_orderstats_inclusion)(x_jx)), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(jax.jit(os_real.expected_orderstats_leave_one_out)(x_jx)), np.asarray(jax.jit(os_int.expected_orderstats_leave_one_out)(x_jx)), rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.jax
@@ -232,11 +232,11 @@ def test_jax_real_k_fractional_is_supported():
 
     os_frac = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
 
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats(x_jx))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_inclusion(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_leave_one_out(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_orderstats_advantage(x_jx, method="matmul"))).all()
-    assert np.isfinite(np.asarray(os_frac.expected_lstat_advantage(x_jx, a_jx, method="matmul"))).all()
+    assert np.isfinite(np.asarray(jax.jit(os_frac.expected_orderstats)(x_jx))).all()
+    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_inclusion(x, method="matmul"))(x_jx))).all()
+    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_leave_one_out(x, method="matmul"))(x_jx))).all()
+    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_advantage(x, method="matmul"))(x_jx))).all()
+    assert np.isfinite(np.asarray(jax.jit(lambda x, a: os_frac.expected_lstat_advantage(x, a, method="matmul"))(x_jx, a_jx))).all()
 
     
 
