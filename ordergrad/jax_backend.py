@@ -242,7 +242,7 @@ def known_rp_orderstats(
     p = jnp.asarray(p, dtype=jnp.float64)
     if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
         raise ValueError("r and p must be 1D arrays of equal length")
-    if jnp.any(p < 0):
+    if not isinstance(p, jax.core.Tracer) and bool(jnp.any(p < 0)):
         raise ValueError("p must be nonnegative")
     p = p / jnp.sum(p)
     m = int(r.shape[0])

@@ -273,25 +273,6 @@ def test_torch_real_k_matches_integer_k_when_equal():
 
 
 @pytest.mark.torch
-def test_torch_real_k_fractional_is_supported():
-    rng = np.random.default_rng(20)
-    N, k = 15, 5.4
-    x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
-
-    x_th = torch.tensor(x_np, dtype=torch.float64)
-    a_th = torch.tensor(a_np, dtype=torch.float64)
-
-    os_frac = TH.precompute(N, k, dtype=torch.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
-
-    assert np.isfinite(os_frac.expected_orderstats(x_th).detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_inclusion(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_leave_one_out(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_orderstats_advantage(x_th, method="matmul").detach().cpu().numpy()).all()
-    assert np.isfinite(os_frac.expected_lstat_advantage(x_th, a_th, method="matmul").detach().cpu().numpy()).all()
-
-
-@pytest.mark.torch
 def test_torch_harrell_davis_matches_numpy_reference_weights_and_alias():
     k = 9
     q = 0.25

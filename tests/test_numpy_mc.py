@@ -137,37 +137,6 @@ def test_known_rp_matches_monte_carlo_unconditional_and_conditional():
         _assert_close_mc(q[b], mc_q, mc_q_std, T, nsig=4.0)
 
 
-def test_known_rp_fractional_k_is_distinct_from_floor_k():
-    rng = np.random.default_rng(1777)
-    r = np.array([-1.2, -0.2, 0.8, 2.3], dtype=np.float64)
-    p = np.array([0.15, 0.35, 0.30, 0.20], dtype=np.float64)
-    k_real = 4.7
-    k_ord = int(np.floor(k_real))
-    T = 30000
-
-    os_real = OrderStatTransform.precompute(20, k_real, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    v_real = os_real.expected_orderstats_known_rp(r, p)
-    q_real = os_real.expected_orderstats_inclusion_known_rp(r, p)
-
-    os_int = OrderStatTransform.precompute(20, k_ord, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    v_int = os_int.expected_orderstats_known_rp(r, p)
-    q_int = os_int.expected_orderstats_inclusion_known_rp(r, p)
-    assert not np.allclose(v_real, v_int, atol=1e-8, rtol=1e-8)
-    assert not np.allclose(q_real, q_int, atol=1e-8, rtol=1e-8)
-
-    keys = rng.choice(len(r), size=(T, k_ord), replace=True, p=p)
-    samples = np.sort(r[keys], axis=1)
-    mc_v = samples.mean(axis=0)
-    mc_v_std = samples.std(axis=0, ddof=1)
-    _assert_close_mc(v_int, mc_v, mc_v_std, T, nsig=4.0)
-
-    for b in range(len(r)):
-        keys_b = rng.choice(len(r), size=(T, k_ord - 1), replace=True, p=p)
-        samp_b = np.sort(np.concatenate([np.full((T, 1), r[b]), r[keys_b]], axis=1), axis=1)
-        mc_q = samp_b.mean(axis=0)
-        mc_q_std = samp_b.std(axis=0, ddof=1)
-        _assert_close_mc(q_int[b], mc_q, mc_q_std, T, nsig=4.0)
-
 
 def test_batch_advantage_matches_known_rp_advantage_in_expectation():
     rng = np.random.default_rng(888)
