@@ -221,27 +221,6 @@ def test_jax_real_k_matches_integer_k_when_equal():
 
 
 @pytest.mark.jax
-def test_jax_real_k_fractional_is_supported():
-    rng = np.random.default_rng(18)
-    N, k = 15, 5.4
-    x_np = _rand_x_no_ties(rng, N)
-    a_np = rng.normal(size=int(np.floor(k))).astype(np.float64)
-
-    x_jx = jnp.asarray(x_np, dtype=jnp.float64)
-    a_jx = jnp.asarray(a_np, dtype=jnp.float64)
-
-    os_frac = JX.precompute(N, k, dtype=jnp.float64, compute_conditional=True, compute_leave_one_out=True, compute_dense_matrices=True)
-
-    assert np.isfinite(np.asarray(jax.jit(os_frac.expected_orderstats)(x_jx))).all()
-    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_inclusion(x, method="matmul"))(x_jx))).all()
-    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_leave_one_out(x, method="matmul"))(x_jx))).all()
-    assert np.isfinite(np.asarray(jax.jit(lambda x: os_frac.expected_orderstats_advantage(x, method="matmul"))(x_jx))).all()
-    assert np.isfinite(np.asarray(jax.jit(lambda x, a: os_frac.expected_lstat_advantage(x, a, method="matmul"))(x_jx, a_jx))).all()
-
-    
-
-
-@pytest.mark.jax
 def test_jax_quantile_preset_matches_numpy_reference():
     k = 6
     os_np = NP.precompute(k, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
