@@ -183,10 +183,6 @@ def test_jax_dense_matmul_variants_match_efficient_and_auto():
 
 
 @pytest.mark.jax
-@pytest.mark.jax
-
-
-@pytest.mark.jax
 def test_jax_known_rp_matches_numpy():
     r_np = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
     p_np = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
