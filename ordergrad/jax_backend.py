@@ -116,12 +116,10 @@ def known_rp_orderstats(r: jnp.ndarray, p: jnp.ndarray, k: float, *, dtype=jnp.f
     p = jnp.asarray(p, dtype=jnp.float64)
     if r.ndim != 1 or p.ndim != 1 or r.shape[0] != p.shape[0]:
         raise ValueError("r and p must be 1D arrays of equal length")
-    if jnp.any(p < 0):
-        raise ValueError("p must be nonnegative")
     p = p / jnp.sum(p)
     m = int(r.shape[0])
     k_eff = float(k)
-    k_ord = int(jnp.floor(k_eff))
+    k_ord = int(math.floor(k_eff))
     if not (k_eff >= 1):
         raise ValueError("Require real k >= 1")
     if k_ord < 1:
