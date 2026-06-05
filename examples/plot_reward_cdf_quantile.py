@@ -137,12 +137,12 @@ def _assert_quantile_method_consistency(rng: np.random.Generator) -> None:
 
     for _ in range(3):
         x = rng.normal(size=n).astype(np.float64)
-        expected = os.expected_orderstats(x)
+        expected = os.orderstats(x)
         for method in ["Quantile", "QuantileHazen", "QuantileWeibull", "QuantileBlom"]:
             p_knots = _plotting_positions(method, k_ord)
             for q in q_grid:
                 interp_val = _interp_quantile_from_orderstats(q, expected, p_knots)
-                api_val = float(os.expected_lstat(x, f"{method}:{q}"))
+                api_val = float(os.lstat(x, f"{method}:{q}"))
                 if not np.isclose(interp_val, api_val, rtol=1e-10, atol=1e-12):
                     raise AssertionError(
                         f"Quantile interpolation mismatch for {method} q={q}: "
@@ -202,7 +202,7 @@ def main() -> None:
             mix_scales=mix_scales,
             mix_weights=mix_weights,
         )
-        orderstats_mc += os.expected_orderstats(x)
+        orderstats_mc += os.orderstats(x)
     orderstats_mc /= float(args.num_estimates)
 
     if args.dist == "uniform":

@@ -98,15 +98,15 @@ def main() -> None:
     t_pre_lstat_no = time.perf_counter() - t_pre_lstat_no
 
     benchmarks: list[tuple[str, Callable[[], Any]]] = [
-        ("orderstats unconditional (always W-based)", lambda: os_no.expected_orderstats(x)),
-        ("inc efficient (no-dense)", lambda: os_no.expected_orderstats_inclusion(x, method="efficient")),
-        ("adv efficient (no-dense)", lambda: os_no.expected_orderstats_advantage(x, method="efficient")),
-        ("L-adv efficient (no-dense; a passed)", lambda: os_no.expected_lstat_advantage(x, a, method="efficient")),
-        ("L-adv direct efficient (no-dense; prew)", lambda: os_lstat_no.expected_lstat_advantage(x, method="efficient")),
-        ("L-inc full+dot efficient (no-dense)", lambda: os_no.expected_orderstats_inclusion(x, method="efficient") @ a),
-        ("L-inc direct efficient (no-dense; prew)", lambda: os_lstat_no.expected_lstat_inclusion(x, method="efficient")),
-        ("L-uncond full+dot (no-dense)", lambda: os_no.expected_orderstats(x) @ a),
-        ("L-uncond direct preweighted (no-dense)", lambda: os_lstat_no.expected_lstat(x)),
+        ("orderstats unconditional (always W-based)", lambda: os_no.orderstats(x)),
+        ("inc efficient (no-dense)", lambda: os_no.orderstats_inclusion(x, method="efficient")),
+        ("adv efficient (no-dense)", lambda: os_no.orderstats_advantage(x, method="efficient")),
+        ("L-adv efficient (no-dense; a passed)", lambda: os_no.lstat_advantage(x, a, method="efficient")),
+        ("L-adv direct efficient (no-dense; prew)", lambda: os_lstat_no.lstat_advantage(x, method="efficient")),
+        ("L-inc full+dot efficient (no-dense)", lambda: os_no.orderstats_inclusion(x, method="efficient") @ a),
+        ("L-inc direct efficient (no-dense; prew)", lambda: os_lstat_no.lstat_inclusion(x, method="efficient")),
+        ("L-uncond full+dot (no-dense)", lambda: os_no.orderstats(x) @ a),
+        ("L-uncond direct preweighted (no-dense)", lambda: os_lstat_no.lstat(x)),
     ]
 
     t_pre_dense = None
@@ -125,21 +125,21 @@ def main() -> None:
         # - "direct": use with_lstat_weights(a) so contractions are precomputed once.
         benchmarks.extend(
             [
-                ("inc matmul request (no-dense fallback)", lambda: os_no.expected_orderstats_inclusion(x, method="matmul")),
-                ("inc efficient (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="efficient")),
-                ("inc matmul (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="matmul")),
-                ("adv efficient (dense)", lambda: os_dense.expected_orderstats_advantage(x, method="efficient")),
-                ("adv matmul (dense)", lambda: os_dense.expected_orderstats_advantage(x, method="matmul")),
-                ("L-adv (dense; a passed each call)", lambda: os_dense.expected_lstat_advantage(x, a, method="efficient")),
-                ("L-adv matmul (dense; a passed)", lambda: os_dense.expected_lstat_advantage(x, a, method="matmul")),
-                ("L-adv direct (dense; preweighted)", lambda: os_lstat_dense.expected_lstat_advantage(x, method="efficient")),
-                ("L-adv direct matmul (dense; prew)", lambda: os_lstat_dense.expected_lstat_advantage(x, method="matmul")),
-                ("L-inc full+dot (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="efficient") @ a),
-                ("L-inc direct (dense; preweighted)", lambda: os_lstat_dense.expected_lstat_inclusion(x, method="efficient")),
-                ("L-inc full+dot matmul (dense)", lambda: os_dense.expected_orderstats_inclusion(x, method="matmul") @ a),
-                ("L-inc direct matmul (dense; prew)", lambda: os_lstat_dense.expected_lstat_inclusion(x, method="matmul")),
-                ("L-uncond full+dot", lambda: os_dense.expected_orderstats(x) @ a),
-                ("L-uncond direct preweighted", lambda: os_lstat_dense.expected_lstat(x)),
+                ("inc matmul request (no-dense fallback)", lambda: os_no.orderstats_inclusion(x, method="matmul")),
+                ("inc efficient (dense)", lambda: os_dense.orderstats_inclusion(x, method="efficient")),
+                ("inc matmul (dense)", lambda: os_dense.orderstats_inclusion(x, method="matmul")),
+                ("adv efficient (dense)", lambda: os_dense.orderstats_advantage(x, method="efficient")),
+                ("adv matmul (dense)", lambda: os_dense.orderstats_advantage(x, method="matmul")),
+                ("L-adv (dense; a passed each call)", lambda: os_dense.lstat_advantage(x, a, method="efficient")),
+                ("L-adv matmul (dense; a passed)", lambda: os_dense.lstat_advantage(x, a, method="matmul")),
+                ("L-adv direct (dense; preweighted)", lambda: os_lstat_dense.lstat_advantage(x, method="efficient")),
+                ("L-adv direct matmul (dense; prew)", lambda: os_lstat_dense.lstat_advantage(x, method="matmul")),
+                ("L-inc full+dot (dense)", lambda: os_dense.orderstats_inclusion(x, method="efficient") @ a),
+                ("L-inc direct (dense; preweighted)", lambda: os_lstat_dense.lstat_inclusion(x, method="efficient")),
+                ("L-inc full+dot matmul (dense)", lambda: os_dense.orderstats_inclusion(x, method="matmul") @ a),
+                ("L-inc direct matmul (dense; prew)", lambda: os_lstat_dense.lstat_inclusion(x, method="matmul")),
+                ("L-uncond full+dot", lambda: os_dense.orderstats(x) @ a),
+                ("L-uncond direct preweighted", lambda: os_lstat_dense.lstat(x)),
             ]
         )
 

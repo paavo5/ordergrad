@@ -144,7 +144,7 @@ def main() -> None:
                 x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1)
             else:
                 x_rp = -torch.sum((z_rp - float(args.center)) ** 2, dim=1) + 0.2 * torch.sum(torch.sin(float(args.sin_freq) * z_rp), dim=1)
-            l_rp = os_l.expected_lstat(x_rp)
+            l_rp = os_l.lstat(x_rp)
             g_rp_all[t] = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
             z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
@@ -152,7 +152,7 @@ def main() -> None:
                 x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1)
             else:
                 x_lr = -torch.sum((z_sample - float(args.center)) ** 2, dim=1) + 0.2 * torch.sum(torch.sin(float(args.sin_freq) * z_sample), dim=1)
-            l_adv = os_l.expected_lstat_advantage(x_lr).detach()
+            l_adv = os_l.lstat_advantage(x_lr).detach()
             mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             logp = -0.5 * torch.sum((z_sample - mu_lr[None, :]) ** 2, dim=1) - (args.dim * const)
             obj = (float(k) / float(args.N)) * torch.sum(l_adv * logp)

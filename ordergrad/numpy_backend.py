@@ -690,12 +690,12 @@ class OrderStatTransform:
 
     # -------- order-statistics expectations --------
 
-    def expected_orderstats(self, x: np.ndarray) -> np.ndarray:
+    def orderstats(self, x: np.ndarray) -> np.ndarray:
         """Return E[X_(j:k)] for j=1..k. Shape (k,)."""
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
-    def expected_orderstats_inclusion(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
+    def orderstats_inclusion(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
         """Return E[X_(j:k) | i included] for all i. Shape (N,k)."""
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
@@ -723,7 +723,7 @@ class OrderStatTransform:
         E_by_rank = prefA_excl + diag + suffC_excl
         return E_by_rank[inv, :]
 
-    def expected_orderstats_leave_one_out(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
+    def orderstats_leave_one_out(self, x: np.ndarray, *, method: str = "efficient") -> np.ndarray:
         """Return E[X_(j:k)] on population with i removed. Shape (N,k)."""
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
@@ -772,35 +772,35 @@ class OrderStatTransform:
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> float:
+    def lstat(self, x: np.ndarray, a: Optional[np.ndarray] = None) -> float:
         """Return E[T(S)] where T(S)=sum_j a_j X_(j:k)."""
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return float(x_sorted @ w_rank)
 
-    def expected_lstat_inclusion(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
+    def lstat_inclusion(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S) | i included] for all i. Shape (N,)."""
         if a is None and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
-            return self._expected_lstat_inclusion_by_rank(x_sorted)[inv]
+            return self._lstat_inclusion_by_rank(x_sorted)[inv]
         if method in {"matmul", "auto"} and self.M_inc_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
-        E_inc = self.expected_orderstats_inclusion(x, method=method)
+        E_inc = self.orderstats_inclusion(x, method=method)
         return E_inc @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
-    def expected_lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
+    def lstat_leave_one_out(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient") -> np.ndarray:
         """Return E[T(S)] on population with i removed, for all i. Shape (N,)."""
         if a is None and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
-            return self._expected_lstat_leave_one_out_by_rank(x_sorted)[inv]
+            return self._lstat_leave_one_out_by_rank(x_sorted)[inv]
         if method in {"matmul", "auto"} and self.M_loo_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
-        E_loo = self.expected_orderstats_leave_one_out(x, method=method)
+        E_loo = self.orderstats_leave_one_out(x, method=method)
         return E_loo @ self._validate_a(a, self.k, dtype=self.W.dtype)
 
-    def _expected_lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
+    def _lstat_inclusion_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
         XA = x_sorted * self.Aa
         prefA = np.cumsum(XA)
         prefA_excl = np.concatenate([np.zeros(1, dtype=XA.dtype), prefA[:-1]])
@@ -810,7 +810,7 @@ class OrderStatTransform:
         diag = x_sorted * self.Ba
         return prefA_excl + diag + suffC_excl
 
-    def _expected_lstat_leave_one_out_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
+    def _lstat_leave_one_out_by_rank(self, x_sorted: np.ndarray) -> np.ndarray:
         u = x_sorted[:-1]
         v = x_sorted[1:]
         p1 = u * self.Wma
@@ -822,44 +822,44 @@ class OrderStatTransform:
         suffix2 = pref2[-1] - pref2_before
         return pref1_excl + suffix2
 
-    def expected_orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
+    def orderstats_advantage(self, x: np.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Return E[X_(j:k)|i included] - E[X_(j:k)] on population with i removed. Shape (N,k)."""
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
         if method in {"matmul", "auto"} and self.M_adv is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return np.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
-        return self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+        return self.orderstats_inclusion(x, method=method) - self.orderstats_leave_one_out(x, method=method)
 
-    def expected_orderstats_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+    def orderstats_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
         """Known-(r,p) exact unconditional order-statistics expectation. Shape (k,)."""
         v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return v
 
-    def expected_orderstats_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
+    def orderstats_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray) -> np.ndarray:
         """Known-(r,p) exact conditional E[X_(j:k) | A1=b]. Shape (m,k)."""
         _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
+    def orderstats_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
         """Known-(r,p) exact advantage q-v. Shape (m,k)."""
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return adv
 
-    def expected_lstat_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> float:
+    def lstat_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> float:
         a = self._validate_a(a, self.k, dtype=self.W.dtype)
-        return float(self.expected_orderstats_known_rp(r, p) @ a)
+        return float(self.orderstats_known_rp(r, p) @ a)
 
-    def expected_lstat_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
+    def lstat_inclusion_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray) -> np.ndarray:
         a = self._validate_a(a, self.k, dtype=self.W.dtype)
-        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+        return self.orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
+    def lstat_advantage_known_rp(self, r: np.ndarray, p: np.ndarray, a: np.ndarray, *, detach_advantage: bool = True) -> np.ndarray:
         a = self._validate_a(a, self.k, dtype=self.W.dtype)
-        return self.expected_orderstats_advantage_known_rp(r, p) @ a
+        return self.orderstats_advantage_known_rp(r, p) @ a
 
 
-    def expected_lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
+    def lstat_advantage(self, x: np.ndarray, a: Optional[np.ndarray] = None, *, method: str = "efficient", detach_advantage: bool = True) -> np.ndarray:
         """Convenience: per-item advantage-style transform.
 
         Defined as:
@@ -869,9 +869,9 @@ class OrderStatTransform:
         """
         if a is None and self.Aa is not None and self.Ba is not None and self.Ca is not None and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
-            adv_by_rank = self._expected_lstat_inclusion_by_rank(x_sorted) - self._expected_lstat_leave_one_out_by_rank(x_sorted)
+            adv_by_rank = self._lstat_inclusion_by_rank(x_sorted) - self._lstat_leave_one_out_by_rank(x_sorted)
             return adv_by_rank[inv]
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_adv_a @ x_sorted)[inv]
-        return self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
+        return self.lstat_inclusion(x, a, method=method) - self.lstat_leave_one_out(x, a, method=method)

@@ -32,7 +32,7 @@ the same transforms are exposed in scalar/per-item form.
 
 ### Important interpretation
 
-For the **batch APIs** (`expected_orderstats`, `expected_orderstats_inclusion`, `expected_orderstats_leave_one_out`, `...advantage`), the library computes these quantities **exactly for the realized batch**.  
+For the **batch APIs** (`orderstats`, `orderstats_inclusion`, `orderstats_leave_one_out`, `...advantage`), the library computes these quantities **exactly for the realized batch**.
 When the batch itself is sampled i.i.d. from an underlying arm distribution, these batch quantities are the unbiased-estimation objects discussed in the note.
 
 ---
@@ -47,9 +47,9 @@ When the batch itself is sampled i.i.d. from an underlying arm distribution, the
 
 Use:
 
-- `expected_orderstats_known_rp(r, p)`
-- `expected_orderstats_inclusion_known_rp(r, p)`
-- `expected_orderstats_advantage_known_rp(r, p)`
+- `orderstats_known_rp(r, p)`
+- `orderstats_inclusion_known_rp(r, p)`
+- `orderstats_advantage_known_rp(r, p)`
 - and L-stat counterparts.
 
 These are exact (up to floating-point error) for the specified `(r,p)` model.
@@ -61,10 +61,10 @@ These are exact (up to floating-point error) for the specified `(r,p)` model.
 
 Use:
 
-- `expected_orderstats(x)`
-- `expected_orderstats_inclusion(x)`
-- `expected_orderstats_leave_one_out(x)`
-- `expected_orderstats_advantage(x)`
+- `orderstats(x)`
+- `orderstats_inclusion(x)`
+- `orderstats_leave_one_out(x)`
+- `orderstats_advantage(x)`
 - and L-stat counterparts.
 
 These are exact for the realized batch and are the estimator objects used in the note’s unbiasedness/equivalence results.
@@ -75,7 +75,7 @@ These are exact for the realized batch and are the estimator objects used in the
 
 A primary use-case is gradient estimation for order-statistic objectives:
 
-- **Reparameterization-style gradient:** differentiating the computed batch quantity (e.g. `expected_lstat(...)`) gives an unbiased reparameterization-style estimator under the ranknote assumptions.
+- **Reparameterization-style gradient:** differentiating the computed batch quantity (e.g. `lstat(...)`) gives an unbiased reparameterization-style estimator under the ranknote assumptions.
 - **Likelihood-ratio-style gradient:** using the computed advantage term in a score-function estimator yields an unbiased estimator with typically lower variance.
 
 By default, advantage outputs are detached from the computation graph (`detach_advantage=True`).
@@ -116,19 +116,19 @@ os = numpy_backend.OrderStatTransform.precompute(N, k, dtype=np.float64)
 x = np.random.randn(N)
 a = np.ones(os.k) / os.k  # os.k is floor(k) when k is real
 
-E = os.expected_orderstats(x)                      # (os.k,)
-E_inc = os.expected_orderstats_inclusion(x)        # (N, os.k)
-E_loo = os.expected_orderstats_leave_one_out(x)    # (N, os.k)
-adv = os.expected_orderstats_advantage(x)          # (N, os.k)
+E = os.orderstats(x)                      # (os.k,)
+E_inc = os.orderstats_inclusion(x)        # (N, os.k)
+E_loo = os.orderstats_leave_one_out(x)    # (N, os.k)
+adv = os.orderstats_advantage(x)          # (N, os.k)
 
-l_adv = os.expected_lstat_advantage(x, a)          # (N,)
+l_adv = os.lstat_advantage(x, a)          # (N,)
 
 # Preset shorthands are also supported for a:
 #   "TopM:m", "BotM:m", "TrimM:m", "WinsorizedM:m", "MidrangeM:m", "TopBot:m",
 #   "ReMax", "ReMin", "Median", "Rank:r", "Quantile:q", "QuantileWeibull:q", "QuantileHazen:q", "QuantileBlom:q", "TopQuantile:q", "TopQuantileWeibull:q", "TopQuantileHazen:q", "TopQuantileBlom:q", "UpperTailMean:q", "LowerTailMean:q",
 #   "RangeUpperTailMean:lo:hi", "RangeLowerTailMean:lo:hi", "TrimmedMeanFrac:lo:hi",
 #   "HarrellDavis:q", "GiniMeanDifference" (or "GMD"), "LMoment:r"
-l_top2 = os.expected_lstat(x, "TopM:2")
+l_top2 = os.lstat(x, "TopM:2")
 ```
 
 Common LR-style usage with fixed `a` (preweighted transform):
@@ -148,8 +148,8 @@ os_l = os.with_lstat_weights(a)
 # os_l = numpy_backend.OrderStatTransform.precompute_lstat(N, k, a, dtype=np.float64)
 
 x = np.random.randn(N)
-l_adv = os_l.expected_lstat_advantage(x)          # detached by default, shape (N,)
-l_inc = os_l.expected_lstat_inclusion(x)          # shape (N,)
+l_adv = os_l.lstat_advantage(x)          # detached by default, shape (N,)
+l_inc = os_l.lstat_inclusion(x)          # shape (N,)
 ```
 
 ### NumPy (known `(r,p)` regime)
@@ -165,10 +165,10 @@ r = np.array([-1.0, 0.2, 1.1, 2.4], dtype=np.float64)
 p = np.array([0.1, 0.45, 0.3, 0.15], dtype=np.float64)
 a = np.array([0.2, -0.1, 0.4, 0.3, 0.2], dtype=np.float64)
 
-v = os.expected_orderstats_known_rp(r, p)                 # (os.k,)
-q = os.expected_orderstats_inclusion_known_rp(r, p)        # (m, os.k)
-adv = os.expected_orderstats_advantage_known_rp(r, p)      # (m, os.k)
-l_adv = os.expected_lstat_advantage_known_rp(r, p, a)      # (m,)
+v = os.orderstats_known_rp(r, p)                 # (os.k,)
+q = os.orderstats_inclusion_known_rp(r, p)        # (m, os.k)
+adv = os.orderstats_advantage_known_rp(r, p)      # (m, os.k)
+l_adv = os.lstat_advantage_known_rp(r, p, a)      # (m,)
 ```
 
 Torch/JAX provide matching methods.
@@ -182,7 +182,7 @@ For most workloads, prefer the **efficient** evaluation path and preweighting wh
 
 - Use `method="efficient"` for inclusion/leave-one-out/advantage calls; this is typically faster and more memory-efficient in the benchmark scripts.
 - Use `with_lstat_weights(a)` (or `precompute_lstat(...)`) when the L-stat vector `a` is reused across many calls.
-  This precomputes the `a`-contractions once and usually gives significantly faster repeated `expected_lstat*` evaluations than recomputing full order-stat tensors and multiplying by `a` each call.
+  This precomputes the `a`-contractions once and usually gives significantly faster repeated `lstat*` evaluations than recomputing full order-stat tensors and multiplying by `a` each call.
 - Enable `compute_dense_matrices=True` only when you explicitly want matmul-based dense operator paths (or are comparing methods).
   Dense precompute can be slower and uses more memory.
 
@@ -194,15 +194,15 @@ Each backend exposes `OrderStatTransform` with:
   - `k` may be integer or real
   - internal order-stat dimension is `floor(k)` and available as `transform.k`
 - batch-regime order-stat methods:
-  - `expected_orderstats(x)`
-  - `expected_orderstats_inclusion(x, method="efficient"|"matmul"|"auto")`
-  - `expected_orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto")`
-  - `expected_orderstats_advantage(x, method="efficient"|"matmul"|"auto", detach_advantage=True)`
+  - `orderstats(x)`
+  - `orderstats_inclusion(x, method="efficient"|"matmul"|"auto")`
+  - `orderstats_leave_one_out(x, method="efficient"|"matmul"|"auto")`
+  - `orderstats_advantage(x, method="efficient"|"matmul"|"auto", detach_advantage=True)`
 - batch-regime L-stat methods:
-  - `expected_lstat(x, a=None)`
-  - `expected_lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
-  - `expected_lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
-  - `expected_lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
+  - `lstat(x, a=None)`
+  - `lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
+  - `lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
+  - `lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
   - `a` can be either a numeric vector of shape `(floor(k),)` interpreted in top-rank order (`j=1` highest), or a preset string:
     - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is highest rank)
     - `"BotM:m"`: equal weight on bottom `m` ranks (largest `j` ranks)
@@ -226,13 +226,13 @@ Each backend exposes `OrderStatTransform` with:
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
     - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
 - known-`(r,p)` order-stat methods:
-  - `expected_orderstats_known_rp(r, p)`
-  - `expected_orderstats_inclusion_known_rp(r, p)`
-  - `expected_orderstats_advantage_known_rp(r, p, detach_advantage=True)`
+  - `orderstats_known_rp(r, p)`
+  - `orderstats_inclusion_known_rp(r, p)`
+  - `orderstats_advantage_known_rp(r, p, detach_advantage=True)`
 - known-`(r,p)` L-stat methods:
-  - `expected_lstat_known_rp(r, p, a)`
-  - `expected_lstat_inclusion_known_rp(r, p, a)`
-  - `expected_lstat_advantage_known_rp(r, p, a, detach_advantage=True)`
+  - `lstat_known_rp(r, p, a)`
+  - `lstat_inclusion_known_rp(r, p, a)`
+  - `lstat_advantage_known_rp(r, p, a, detach_advantage=True)`
 
 When `compute_dense_matrices=True`, inclusion/leave-one-out/advantage can use explicit dense matmul paths; otherwise efficient prefix/suffix implementations are used.
 
