@@ -25,7 +25,7 @@ Given an order-statistic index $j$ and subset/sample size parameter $k$:
 For L-statistics with weights $\alpha$:
 
 $$
-T = \sum_j \alpha_j X_{(j:k)}
+T = \sum_j \alpha_j \mathbb{E}\left[X_{(j:k)}\right]
 $$
 
 the same transforms are exposed in scalar/per-item form.
