@@ -267,12 +267,11 @@ pytest -m jax
 If you use this library, please cite the OrderGrad paper:
 
 ```bibtex
-@misc{parmas2026ordergrad,
-  title         = {OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation},
-  author        = {Parmas, Paavo and Kim, Yongmin and Matsutani, Kohsei and Takashiro, Shota and Nishimori, Soichiro and Kojima, Takeshi and Iwasawa, Yusuke and Matsuo, Yutaka},
-  year          = {2026},
-  eprint        = {2606.06096},
-  archivePrefix = {arXiv},
-  url           = {https://arxiv.org/abs/2606.06096}
+@article{parmas2026ordergrad,
+  title={OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation},
+  author={Parmas, Paavo and Kim, Yongmin and Matsutani, Kohsei and Takashiro, Shota and Nishimori, Soichiro and Kojima, Takeshi and Iwasawa, Yusuke and Matsuo, Yutaka},
+  journal={arXiv preprint arXiv:2606.06096},
+  year={2026},
+  url={https://arxiv.org/abs/2606.06096}
 }
 ```
