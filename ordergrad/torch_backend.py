@@ -352,11 +352,11 @@ class OrderStatTransform:
 
     # -------- order-statistics expectations --------
 
-    def expected_orderstats(self, x: torch.Tensor) -> torch.Tensor:
+    def orderstats(self, x: torch.Tensor) -> torch.Tensor:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
-    def expected_orderstats_inclusion(self, x: torch.Tensor, *, method: str = "efficient") -> torch.Tensor:
+    def orderstats_inclusion(self, x: torch.Tensor, *, method: str = "efficient") -> torch.Tensor:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -381,7 +381,7 @@ class OrderStatTransform:
         E_by_rank = prefA_excl + diag + suffC_excl
         return E_by_rank[inv, :]
 
-    def expected_orderstats_leave_one_out(self, x: torch.Tensor, *, method: str = "efficient") -> torch.Tensor:
+    def orderstats_leave_one_out(self, x: torch.Tensor, *, method: str = "efficient") -> torch.Tensor:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -617,7 +617,7 @@ class OrderStatTransform:
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: torch.Tensor, a: Optional[Any] = None) -> torch.Tensor:
+    def lstat(self, x: torch.Tensor, a: Optional[Any] = None) -> torch.Tensor:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return (x_sorted * w_rank).sum()
@@ -656,7 +656,7 @@ class OrderStatTransform:
     def precompute_lstat(cls, N: int, k: int, a: Any, **kwargs) -> "OrderStatTransform":
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
-    def expected_lstat_inclusion(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
+    def lstat_inclusion(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
         if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             xa = x_sorted * self.Aa
@@ -669,13 +669,13 @@ class OrderStatTransform:
         if method in {"matmul", "auto"} and self.M_inc_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
-        E_inc = self.expected_orderstats_inclusion(x, method=method)
+        E_inc = self.orderstats_inclusion(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = self._coerce_a(a)
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
+    def lstat_leave_one_out(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient") -> torch.Tensor:
         if a is None and hasattr(self, "Wma") and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             p1 = x_sorted[:-1] * self.Wma
@@ -688,52 +688,52 @@ class OrderStatTransform:
         if method in {"matmul", "auto"} and self.M_loo_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
-        E_loo = self.expected_orderstats_leave_one_out(x, method=method)
+        E_loo = self.orderstats_leave_one_out(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = self._coerce_a(a)
         return E_loo @ a
 
-    def expected_orderstats_advantage(self, x: torch.Tensor, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
+    def orderstats_advantage(self, x: torch.Tensor, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
         if method in {"matmul", "auto"} and self.M_adv is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = torch.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
             return out.detach() if detach_advantage else out
-        out = self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+        out = self.orderstats_inclusion(x, method=method) - self.orderstats_leave_one_out(x, method=method)
         return out.detach() if detach_advantage else out
 
 
-    def expected_orderstats_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+    def orderstats_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
         v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
         return v
 
-    def expected_orderstats_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+    def orderstats_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
         _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, *, detach_advantage: bool = True) -> torch.Tensor:
+    def orderstats_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, *, detach_advantage: bool = True) -> torch.Tensor:
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype, device=self.W.device)
         return adv.detach() if detach_advantage else adv
 
-    def expected_lstat_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
+    def lstat_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
         a = self._coerce_a(a)
-        return self.expected_orderstats_known_rp(r, p) @ a
+        return self.orderstats_known_rp(r, p) @ a
 
-    def expected_lstat_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
+    def lstat_inclusion_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any) -> torch.Tensor:
         a = self._coerce_a(a)
-        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+        return self.orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any, *, detach_advantage: bool = True) -> torch.Tensor:
+    def lstat_advantage_known_rp(self, r: torch.Tensor, p: torch.Tensor, a: Any, *, detach_advantage: bool = True) -> torch.Tensor:
         a = self._coerce_a(a)
-        out = self.expected_orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
+        out = self.orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
         return out.detach() if detach_advantage else out
 
-    def expected_lstat_advantage(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
+    def lstat_advantage(self, x: torch.Tensor, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> torch.Tensor:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = (self.M_adv_a @ x_sorted)[inv]
             return out.detach() if detach_advantage else out
-        out = self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
+        out = self.lstat_inclusion(x, a, method=method) - self.lstat_leave_one_out(x, a, method=method)
         return out.detach() if detach_advantage else out

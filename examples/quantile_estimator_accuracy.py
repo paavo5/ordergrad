@@ -151,7 +151,7 @@ def main() -> None:
         for i in range(t):
             x = _draw_batch(rng, args.N, args.dist)
             for method, _, spec, os in estimators:
-                vals_by_method[method][i] = os.expected_lstat(x, spec)
+                vals_by_method[method][i] = os.lstat(x, spec)
 
         denom = abs(exact) + 1e-12
         for method, k_val, _, _ in estimators:

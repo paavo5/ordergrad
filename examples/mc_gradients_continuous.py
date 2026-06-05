@@ -159,7 +159,7 @@ def main() -> None:
             mu_rp = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             z_rp = mu_rp[None, :] + eps
             x_rp = _reward_from_z(torch, z_rp, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
-            l_rp = os_l.expected_lstat(x_rp)
+            l_rp = os_l.lstat(x_rp)
             g_rp = torch.autograd.grad(l_rp, mu_rp, retain_graph=False, create_graph=False)[0]
 
             # LR estimator via autograd score terms with k multiplier.
@@ -167,7 +167,7 @@ def main() -> None:
             # so grad_mu log p(z; mu) is computed correctly.
             z_sample = (torch.full((args.dim,), float(args.mu), dtype=dtype, device=device)[None, :] + eps).detach()
             x_lr = _reward_from_z(torch, z_sample, center=args.center, objective=args.objective, sin_freq=args.sin_freq)
-            l_adv = os_l.expected_lstat_advantage(x_lr).detach()
+            l_adv = os_l.lstat_advantage(x_lr).detach()
 
             mu_lr = torch.full((args.dim,), float(args.mu), dtype=dtype, device=device, requires_grad=True)
             # log N(z|mu, I) = -0.5*||z-mu||^2 - d*const

@@ -75,7 +75,7 @@ def test_unconditional_orderstats_matches_monte_carlo(N, k, T, seed):
     os = OrderStatTransform.precompute(
         N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True
     )
-    analytic = os.expected_orderstats(x)
+    analytic = os.orderstats(x)
     mc_mean, mc_std = _mc_orderstats_unconditional(x, k, T, rng)
 
     _assert_close_mc(analytic, mc_mean, mc_std, T)
@@ -87,7 +87,7 @@ def test_conditional_included_orderstats_matches_monte_carlo():
     x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
 
     os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=False)
-    E_inc = os.expected_orderstats_inclusion(x)  # (N,k)
+    E_inc = os.orderstats_inclusion(x)  # (N,k)
 
     for i in [0, N // 2, N - 1, 7]:
         mc_mean, mc_std = _mc_orderstats_cond_include(x, i, k, T, rng)
@@ -100,7 +100,7 @@ def test_leave_one_out_orderstats_matches_monte_carlo():
     x = rng.normal(size=N).astype(np.float64) + 1e-6 * np.arange(N, dtype=np.float64)
 
     os = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=True)
-    E_loo = os.expected_orderstats_leave_one_out(x)
+    E_loo = os.orderstats_leave_one_out(x)
 
     for i in [0, N // 2, N - 1, 5]:
         mc_mean, mc_std = _mc_orderstats_leave_one_out(x, i, k, T, rng)
@@ -120,8 +120,8 @@ def test_known_rp_matches_monte_carlo_unconditional_and_conditional():
     T = 30000
 
     os = OrderStatTransform.precompute(20, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    v = os.expected_orderstats_known_rp(r, p)
-    q = os.expected_orderstats_inclusion_known_rp(r, p)
+    v = os.orderstats_known_rp(r, p)
+    q = os.orderstats_inclusion_known_rp(r, p)
 
     keys = rng.choice(len(r), size=(T, k), replace=True, p=p)
     samples = np.sort(r[keys], axis=1)
@@ -146,12 +146,12 @@ def test_known_rp_fractional_k_is_distinct_from_floor_k():
     T = 30000
 
     os_real = OrderStatTransform.precompute(20, k_real, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    v_real = os_real.expected_orderstats_known_rp(r, p)
-    q_real = os_real.expected_orderstats_inclusion_known_rp(r, p)
+    v_real = os_real.orderstats_known_rp(r, p)
+    q_real = os_real.orderstats_inclusion_known_rp(r, p)
 
     os_int = OrderStatTransform.precompute(20, k_ord, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    v_int = os_int.expected_orderstats_known_rp(r, p)
-    q_int = os_int.expected_orderstats_inclusion_known_rp(r, p)
+    v_int = os_int.orderstats_known_rp(r, p)
+    q_int = os_int.orderstats_inclusion_known_rp(r, p)
     assert not np.allclose(v_real, v_int, atol=1e-8, rtol=1e-8)
     assert not np.allclose(q_real, q_int, atol=1e-8, rtol=1e-8)
 
@@ -177,7 +177,7 @@ def test_batch_advantage_matches_known_rp_advantage_in_expectation():
 
     os_batch = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=True, compute_leave_one_out=True)
     os_known = OrderStatTransform.precompute(N, k, dtype=np.float64, compute_conditional=False, compute_leave_one_out=False)
-    adv_exact = os_known.expected_orderstats_advantage_known_rp(r, p)  # (m,k)
+    adv_exact = os_known.orderstats_advantage_known_rp(r, p)  # (m,k)
 
     sum_adv = np.zeros_like(adv_exact)
     sumsq_adv = np.zeros_like(adv_exact)
@@ -185,7 +185,7 @@ def test_batch_advantage_matches_known_rp_advantage_in_expectation():
 
     for _ in range(B):
         x, arms = _sample_known_rp_batch(r, p, N, rng)
-        adv_i = os_batch.expected_orderstats_advantage(x)  # (N,k)
+        adv_i = os_batch.orderstats_advantage(x)  # (N,k)
         for b in range(len(r)):
             mask = arms == b
             if np.any(mask):

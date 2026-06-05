@@ -146,7 +146,7 @@ def main() -> None:
         for t in range(args.num_mc):
             idx = sampler.sample(args.N)
             x = r[idx]
-            l_adv = os_l.expected_lstat_advantage(x).detach()
+            l_adv = os_l.lstat_advantage(x).detach()
             score = torch.nn.functional.one_hot(idx, num_classes=m).to(dtype) - p[None, :]
             grads[t] = float(k) * (l_adv[:, None] * score).mean(dim=0)
 
