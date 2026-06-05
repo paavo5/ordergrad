@@ -1,13 +1,13 @@
 # ordergrad
 
-`ordergrad` implements fast order-statistics transforms used in the rank-note setting (`docs/ranknote.pdf`) with two complementary viewpoints:
+`ordergrad` implements fast order-statistics transforms from [OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation](https://arxiv.org/abs/2606.06096), with two complementary viewpoints:
 
 1. **Known distribution regime ($r, p$)** (sampling with replacement): compute exact quantities for the population distribution.
 2. **Batch regime ($N$ observed samples)** (subset sampling without replacement inside a batch): compute exact batch-level subset expectations that act as **unbiased estimators** (in expectation over i.i.d. batches) of the known-$(r,p)$ targets.
 
 Implemented with a shared API in **NumPy**, **PyTorch**, and **JAX**.
 
-> Reference derivations and motivation: `docs/ranknote.pdf`.
+> Reference derivations and motivation: [OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation](https://arxiv.org/abs/2606.06096).
 
 ---
 
@@ -260,3 +260,19 @@ pytest -m jax
 - Batch transforms assume uniform subset sampling without replacement within the realized batch.
 - Gradients wrt values are piecewise-constant away from ties (stable sorting is used).
 
+---
+
+## Citation
+
+If you use this library, please cite the OrderGrad paper:
+
+```bibtex
+@misc{parmas2026ordergrad,
+  title         = {OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation},
+  author        = {Parmas, Paavo and Kim, Yongmin and Matsutani, Kohsei and Takashiro, Shota and Nishimori, Soichiro and Kojima, Takeshi and Iwasawa, Yusuke and Matsuo, Yutaka},
+  year          = {2026},
+  eprint        = {2606.06096},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2606.06096}
+}
+```
