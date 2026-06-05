@@ -256,11 +256,11 @@ class OrderStatTransform:
 
     # -------- order-statistics expectations --------
 
-    def expected_orderstats(self, x: jnp.ndarray) -> jnp.ndarray:
+    def orderstats(self, x: jnp.ndarray) -> jnp.ndarray:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         return x_sorted @ self.W
 
-    def expected_orderstats_inclusion(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+    def orderstats_inclusion(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -285,7 +285,7 @@ class OrderStatTransform:
         E_by_rank = prefA_excl + diag + suffC_excl
         return E_by_rank[inv, :]
 
-    def expected_orderstats_leave_one_out(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
+    def orderstats_leave_one_out(self, x: jnp.ndarray, *, method: str = "efficient") -> jnp.ndarray:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
 
@@ -503,7 +503,7 @@ class OrderStatTransform:
         w_rank = self.lstat_weight_by_rank(a)
         return w_rank[inv]
 
-    def expected_lstat(self, x: jnp.ndarray, a: Optional[Any] = None) -> jnp.ndarray:
+    def lstat(self, x: jnp.ndarray, a: Optional[Any] = None) -> jnp.ndarray:
         x_sorted, _ = self._sort_with_inverse_rank(x)
         w_rank = self.lstat_weight_by_rank(a)
         return jnp.sum(x_sorted * w_rank)
@@ -542,7 +542,7 @@ class OrderStatTransform:
     def precompute_lstat(cls, N: int, k: int, a: Any, **kwargs) -> "OrderStatTransform":
         return cls.precompute(N, k, **kwargs).with_lstat_weights(a)
 
-    def expected_lstat_inclusion(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
+    def lstat_inclusion(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
         if a is None and hasattr(self, "Aa") and self.Aa is not None and self.Ba is not None and self.Ca is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             xa = x_sorted * self.Aa
@@ -555,13 +555,13 @@ class OrderStatTransform:
         if method in {"matmul", "auto"} and self.M_inc_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_inc_a @ x_sorted)[inv]
-        E_inc = self.expected_orderstats_inclusion(x, method=method)
+        E_inc = self.orderstats_inclusion(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = self._coerce_a(a)
         return E_inc @ a
 
-    def expected_lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
+    def lstat_leave_one_out(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient") -> jnp.ndarray:
         if a is None and hasattr(self, "Wma") and self.Wma is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             p1 = x_sorted[:-1] * self.Wma
@@ -574,51 +574,51 @@ class OrderStatTransform:
         if method in {"matmul", "auto"} and self.M_loo_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             return (self.M_loo_a @ x_sorted)[inv]
-        E_loo = self.expected_orderstats_leave_one_out(x, method=method)
+        E_loo = self.orderstats_leave_one_out(x, method=method)
         if a is None:
             raise ValueError(f"a must be shape ({self.k},)")
         a = self._coerce_a(a)
         return E_loo @ a
 
-    def expected_orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
+    def orderstats_advantage(self, x: jnp.ndarray, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
         if method not in {"efficient", "matmul", "auto"}:
             raise ValueError("method must be one of {'efficient','matmul','auto'}")
         if method in {"matmul", "auto"} and self.M_adv is not None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = jnp.einsum("rmj,m->rj", self.M_adv, x_sorted)[inv, :]
             return jax.lax.stop_gradient(out) if detach_advantage else out
-        out = self.expected_orderstats_inclusion(x, method=method) - self.expected_orderstats_leave_one_out(x, method=method)
+        out = self.orderstats_inclusion(x, method=method) - self.orderstats_leave_one_out(x, method=method)
         return jax.lax.stop_gradient(out) if detach_advantage else out
 
-    def expected_orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+    def orderstats_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
         v, _, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return v
 
-    def expected_orderstats_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
+    def orderstats_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray) -> jnp.ndarray:
         _, q, _ = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return q
 
-    def expected_orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, detach_advantage: bool = True) -> jnp.ndarray:
+    def orderstats_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, *, detach_advantage: bool = True) -> jnp.ndarray:
         _, _, adv = known_rp_orderstats(r, p, self.k_eff, dtype=self.W.dtype)
         return jax.lax.stop_gradient(adv) if detach_advantage else adv
 
-    def expected_lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
+    def lstat_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
         a = self._coerce_a(a)
-        return self.expected_orderstats_known_rp(r, p) @ a
+        return self.orderstats_known_rp(r, p) @ a
 
-    def expected_lstat_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
+    def lstat_inclusion_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any) -> jnp.ndarray:
         a = self._coerce_a(a)
-        return self.expected_orderstats_inclusion_known_rp(r, p) @ a
+        return self.orderstats_inclusion_known_rp(r, p) @ a
 
-    def expected_lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, detach_advantage: bool = True) -> jnp.ndarray:
+    def lstat_advantage_known_rp(self, r: jnp.ndarray, p: jnp.ndarray, a: Any, *, detach_advantage: bool = True) -> jnp.ndarray:
         a = self._coerce_a(a)
-        out = self.expected_orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
+        out = self.orderstats_advantage_known_rp(r, p, detach_advantage=detach_advantage) @ a
         return jax.lax.stop_gradient(out) if detach_advantage else out
 
-    def expected_lstat_advantage(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
+    def lstat_advantage(self, x: jnp.ndarray, a: Optional[Any] = None, *, method: str = "efficient", detach_advantage: bool = True) -> jnp.ndarray:
         if method in {"matmul", "auto"} and self.M_adv_a is not None and a is None:
             x_sorted, inv = self._sort_with_inverse_rank(x)
             out = (self.M_adv_a @ x_sorted)[inv]
             return jax.lax.stop_gradient(out) if detach_advantage else out
-        out = self.expected_lstat_inclusion(x, a, method=method) - self.expected_lstat_leave_one_out(x, a, method=method)
+        out = self.lstat_inclusion(x, a, method=method) - self.lstat_leave_one_out(x, a, method=method)
         return jax.lax.stop_gradient(out) if detach_advantage else out

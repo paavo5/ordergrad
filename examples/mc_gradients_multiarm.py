@@ -151,7 +151,7 @@ def main() -> None:
     os_exact = OrderStatTransform.precompute(max(args.N, 2), args.k, dtype=dtype, compute_conditional=False, compute_leave_one_out=False)
 
     # Exact gradient via known-(r,p) objective + autograd.
-    f_exact = os_exact.expected_lstat_known_rp(r, p, a)
+    f_exact = os_exact.lstat_known_rp(r, p, a)
     g_exact = torch.autograd.grad(f_exact, theta, retain_graph=False, create_graph=False)[0].detach()
 
     sampler = BufferedIndexSampler(p.detach(), buffer_size=args.sample_buffer_size, device=device)
@@ -169,7 +169,7 @@ def main() -> None:
         for _ in range(t):
             idx = sampler.sample(args.N)
             x = r[idx]
-            l_adv = os_batch_l.expected_lstat_advantage(x)  # (N,)
+            l_adv = os_batch_l.lstat_advantage(x)  # (N,)
 
             # score-function term from autograd: d/dtheta log p(idx_n)
             logp = torch.log_softmax(theta, dim=0)

@@ -43,10 +43,10 @@ def main() -> None:
     os_l = os.with_lstat_weights(a)
 
     tasks = [
-        ("orderstats", lambda: os.expected_orderstats(x)),
-        ("inclusion", lambda: os.expected_orderstats_inclusion(x, method="efficient")),
-        ("advantage", lambda: os.expected_orderstats_advantage(x, method="efficient")),
-        ("L-adv", lambda: os_l.expected_lstat_advantage(x, method="efficient")),
+        ("orderstats", lambda: os.orderstats(x)),
+        ("inclusion", lambda: os.orderstats_inclusion(x, method="efficient")),
+        ("advantage", lambda: os.orderstats_advantage(x, method="efficient")),
+        ("L-adv", lambda: os_l.lstat_advantage(x, method="efficient")),
     ]
     names, ms = [], []
     for n, fn in tasks:
