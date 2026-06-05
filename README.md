@@ -7,11 +7,10 @@
 </p>
 
 **Paper:** [OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation](https://arxiv.org/abs/2606.06096)  
-**Code:** [github.com/paavo5/ordergrad](https://github.com/paavo5/ordergrad)  
-**Reference derivations:** [`docs/ranknote.pdf`](docs/ranknote.pdf)  
 **License:** MIT
 
-OrderGrad sorts rewards inside a comparison set, chooses which ranks matter, and targets the corresponding distributional objective. By changing only the rank weights, the same code covers Max@K / best-of-K, Top-M@K, lower-tail or CVaR-style learning, upper-tail objectives, medians, trimmed means, winsorized means, quantiles, and other L-statistics.
+OrderGrad sorts rewards inside a comparison set, chooses which ranks matter, and targets the corresponding distributional objective. By changing only the rank weights, the same code covers Max@K / best-of-K, Top-M@K, lower-tail or CVaR-style learning, upper-tail objectives, medians, trimmed means, winsorized means, quantiles, and other L-statistics. The figure (right side) shows how increasing k makes the order-statistics approach the CDF of the
+distribution, thus allowing to get more accurate approximations of arbitrary weightings on the reward distribution. See the paper for more details.
 
 Implemented backends:
 
@@ -102,26 +101,39 @@ loss.backward()
 optimizer.step()
 ```
 
-For multiple independent groups, compute the OrderGrad transform within each group, then average the losses. Do not mix prompts, tasks, states, or contexts unless the rewards are meant to be ranked against each other.
+For multiple independent groups, precompute the OrderGrad transform once for the shared group size and reuse it for every group. Then compute rank advantages separately within each group and average the losses. Do not mix prompts, tasks, states, or contexts unless the rewards are meant to be ranked against each other.
 
 ```python
 def ordergrad_pg_loss(logp_groups, reward_groups, *, K=4, objective="TopM:2"):
     """Return a policy-gradient loss for a list of same-sized groups."""
-    losses = []
+    if len(logp_groups) != len(reward_groups):
+        raise ValueError("logp_groups and reward_groups must have the same length")
+    if not reward_groups:
+        raise ValueError("at least one group is required")
+
+    N = reward_groups[0].numel()
+    dtype = reward_groups[0].dtype
+    device = reward_groups[0].device
+    if any(r.numel() != N for r in reward_groups):
+        raise ValueError("all groups must have the same size; otherwise cache one transform per N")
+
     OG = get_backend("torch").OrderStatTransform
+    og = OG.precompute_lstat(
+        N,
+        K,
+        objective,
+        dtype=dtype,
+        device=device,
+    )
+
+    losses = []
     for logp, rewards in zip(logp_groups, reward_groups):
-        N = rewards.numel()
-        og = OG.precompute_lstat(
-            N,
-            K,
-            objective,
-            dtype=rewards.dtype,
-            device=rewards.device,
-        )
-        adv = og.lstat_advantage(rewards)
+        adv = og.lstat_advantage(rewards)      # computed separately per group
         losses.append(-(K * adv * logp).mean())
     return torch.stack(losses).mean()
 ```
+
+If groups have different sizes, keep a small cache such as `cache[(N, dtype, device)] = precompute_lstat(...)` and still reuse the matching transform across all groups with the same `N`.
 
 If you are already using PPO or GRPO, place `adv` where your usual advantage would go. PPO clipping, KL penalties, entropy bonuses, reward normalization, and advantage normalization are separate practical choices; OrderGrad changes the scalar learning signal.
 
@@ -226,6 +238,8 @@ $$
 
 This is what `lstat_advantage(rewards, alpha)` returns. The leave-one-out baseline excludes sample `i`, so it satisfies the usual score-function baseline condition. For an i.i.d. batch from the current policy or model, the resulting LR estimator is unbiased for the finite-`K` L-statistic objective under the standard score-function regularity assumptions.
 
+For the max@K special case, [On Advantage Estimates for Max@K Policy Gradients](https://arxiv.org/abs/2606.06080) studies advantage estimates and baseline design for Max@K policy gradients. OrderGrad generalizes that setting from the single maximum rank to arbitrary L-statistic rank weights.
+
 Practical notes:
 
 - LR advantages require `K < N`, because a size-`K` leave-one-out subset must still be possible after removing one sample.
@@ -290,13 +304,17 @@ loss.backward()
 optimizer.step()
 ```
 
+A max@K example of this pathwise regime is [Retry Policy Gradients in Continuous Action Spaces](https://arxiv.org/abs/2606.05888), which introduces pathwise derivative estimators for retry/max@K objectives in continuous action spaces. OrderGrad generalizes the same idea from the maximum rank to arbitrary rank-weighted L-statistics.
+
 Use the LR route when rewards are black-box or non-differentiable, or when only log-probability gradients are available. Use the RP route when the sampling path and reward are differentiable and you want pathwise gradients.
 
 ---
 
-## Known `(r, p)` regime
+## Known `(r, p)` / exact regime
 
 The library also supports an exact finite-distribution regime. This is useful for diagnostics, small discrete examples, and checking the batch estimators.
+
+A max@K reinforcement-learning example of this exact value/probability viewpoint is [Emergence of Exploration in Policy Gradient Reinforcement Learning via Retrying](https://arxiv.org/abs/2606.00151), which studies a ReMax objective based on the expected maximum return over multiple samples. OrderGrad generalizes this maximum-rank objective to arbitrary rank-weighted objectives.
 
 - `r[b]`: fixed reward value of arm `b`
 - `p[b]`: sampling probability for arm `b`, nonnegative and summing to one
@@ -462,17 +480,15 @@ Example and plotting scripts are in [`examples/`](examples/).
 
 ## Citation
 
-If you use this repository, please cite the OrderGrad paper:
+If you use this library, please cite the OrderGrad paper:
 
 ```bibtex
-@misc{parmas2026ordergrad,
-  title         = {OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation},
-  author        = {Parmas, Paavo and Kim, Yongmin and Matsutani, Kohsei and Takashiro, Shota and Nishimori, Soichiro and Kojima, Takeshi and Iwasawa, Yusuke and Matsuo, Yutaka},
-  year          = {2026},
-  eprint        = {2606.06096},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.LG},
-  url           = {https://arxiv.org/abs/2606.06096}
+@article{parmas2026ordergrad,
+  title={OrderGrad: Optimizing Beyond the Mean with Order-Statistic Policy Gradient Estimation},
+  author={Parmas, Paavo and Kim, Yongmin and Matsutani, Kohsei and Takashiro, Shota and Nishimori, Soichiro and Kojima, Takeshi and Iwasawa, Yusuke and Matsuo, Yutaka},
+  journal={arXiv preprint arXiv:2606.06096},
+  year={2026},
+  url={https://arxiv.org/abs/2606.06096}
 }
 ```
 
