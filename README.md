@@ -2,8 +2,8 @@
 
 `ordergrad` implements fast order-statistics transforms used in the rank-note setting (`docs/ranknote.pdf`) with two complementary viewpoints:
 
-1. **Known distribution regime (`r, p`)** (sampling with replacement): compute exact quantities for the population distribution.
-2. **Batch regime (`N` observed samples)** (subset sampling without replacement inside a batch): compute exact batch-level subset expectations that act as **unbiased estimators** (in expectation over i.i.d. batches) of the known-`(r,p)` targets.
+1. **Known distribution regime ($r, p$)** (sampling with replacement): compute exact quantities for the population distribution.
+2. **Batch regime ($N$ observed samples)** (subset sampling without replacement inside a batch): compute exact batch-level subset expectations that act as **unbiased estimators** (in expectation over i.i.d. batches) of the known-$(r,p)$ targets.
 
 Implemented with a shared API in **NumPy**, **PyTorch**, and **JAX**.
 
@@ -13,20 +13,20 @@ Implemented with a shared API in **NumPy**, **PyTorch**, and **JAX**.
 
 ## What is computed
 
-Given an order-statistic index `j` and subset/sample size parameter `k`:
+Given an order-statistic index $j$ and subset/sample size parameter $k$:
 
-- Draw `k` members (according to the regime: with replacement for known `(r,p)`, without replacement from a fixed batch for batch mode).
-- Sort the resulting `k` values from smallest to largest.
-- The **`j`-th order statistic** is the `j`-th ranked value in that sorted list.
-- `v_j` is the expectation of that `j`-th ranked value.
-- `q` is the inclusion-conditioned analogue (conditioning on a specific arm/index being included/observed first, depending on regime).
-- `a = q - v` is the corresponding advantage-style difference.
+- Draw $k$ members (according to the regime: with replacement for known $(r,p)$, without replacement from a fixed batch for batch mode).
+- Sort the resulting $k$ values from smallest to largest.
+- The **$j$-th order statistic** is the $j$-th ranked value in that sorted list.
+- $v_j$ is the expectation of that $j$-th ranked value.
+- $q$ is the inclusion-conditioned analogue (conditioning on a specific arm/index being included/observed first, depending on regime).
+- $a = q - v$ is the corresponding advantage-style difference.
 
-For L-statistics with weights `alpha`:
+For L-statistics with weights $\alpha$:
 
-\[
-T = \sum_j \alpha_j X_{(j:k)},
-\]
+$$
+T = \sum_j \alpha_j X_{(j:k)}
+$$
 
 the same transforms are exposed in scalar/per-item form.
 
@@ -39,10 +39,10 @@ When the batch itself is sampled i.i.d. from an underlying arm distribution, the
 
 ## Regimes
 
-### A) Known `(r, p)` regime (with replacement)
+### A) Known $(r, p)$ regime (with replacement)
 
-- `r[b]`: fixed reward value of arm `b`
-- `p[b]`: arm probability (nonnegative, sums to 1)
+- $r_b$: fixed reward value of arm $b$
+- $p_b$: arm probability (nonnegative, sums to $1$)
 - draws are i.i.d. with replacement
 
 Use:
@@ -52,11 +52,11 @@ Use:
 - `orderstats_advantage_known_rp(r, p)`
 - and L-stat counterparts.
 
-These are exact (up to floating-point error) for the specified `(r,p)` model.
+These are exact (up to floating-point error) for the specified $(r,p)$ model.
 
-### B) Batch regime (`N` observed rewards)
+### B) Batch regime ($N$ observed rewards)
 
-- `x[0..N-1]` is a realized batch
+- $x_0, \ldots, x_{N-1}$ is a realized batch
 - subset operations are without replacement within that batch
 
 Use:
@@ -152,7 +152,7 @@ l_adv = os_l.lstat_advantage(x)          # detached by default, shape (N,)
 l_inc = os_l.lstat_inclusion(x)          # shape (N,)
 ```
 
-### NumPy (known `(r,p)` regime)
+### NumPy (known $(r,p)$ regime)
 
 ```python
 import numpy as np
@@ -191,7 +191,7 @@ For most workloads, prefer the **efficient** evaluation path and preweighting wh
 Each backend exposes `OrderStatTransform` with:
 
 - `precompute(N, k, ..., compute_dense_matrices=False)`
-  - `k` may be integer or real
+  - $k$ may be integer or real
   - internal order-stat dimension is `floor(k)` and available as `transform.k`
 - batch-regime order-stat methods:
   - `orderstats(x)`
@@ -203,33 +203,33 @@ Each backend exposes `OrderStatTransform` with:
   - `lstat_inclusion(x, a=None, method="efficient"|"matmul"|"auto")`
   - `lstat_leave_one_out(x, a=None, method="efficient"|"matmul"|"auto")`
   - `lstat_advantage(x, a=None, method="efficient"|"matmul"|"auto", detach_advantage=True)`
-  - `a` can be either a numeric vector of shape `(floor(k),)` interpreted in top-rank order (`j=1` highest), or a preset string:
-    - `"TopM:m"`: equal weight on top `m` ranks (`j=1` is highest rank)
-    - `"BotM:m"`: equal weight on bottom `m` ranks (largest `j` ranks)
-    - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires `2*m < floor(k)`)
+  - `a` can be either a numeric vector of shape `(floor(k),)` interpreted in top-rank order ($j=1$ highest), or a preset string:
+    - `"TopM:m"`: equal weight on top `m` ranks ($j=1$ is highest rank)
+    - `"BotM:m"`: equal weight on bottom `m` ranks (largest $j$ ranks)
+    - `"TrimM:m"`: trimmed mean over middle ranks after removing top/bottom `m` (requires $2m < \lfloor k \rfloor$)
     - `"WinsorizedM:m"`: winsorized mean (replace bottom/top `m` values by the next interior values)
     - `"MidrangeM:m"` / `"TopBot:m"`: average of bottom-`m` mean and top-`m` mean
-    - `"ReMax"`: top-1 only (`j=1`, largest value)
-    - `"ReMin"`: bottom-1 only (`j=floor(k)`, smallest value)
+    - `"ReMax"`: top-1 only ($j=1$, largest value)
+    - `"ReMin"`: bottom-1 only ($j=\lfloor k \rfloor$, smallest value)
     - `"Median"`: sample median (middle rank or average of two middle ranks)
     - `"Rank:r"`: place all mass on explicit 1-based rank `r`
     - `"Quantile:q"`: default quantile preset (Hazen plotting position, equivalent to `QuantileHazen:q`) using standard quantile `q` (fraction below threshold).
-    - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks (`0 < q <= 1`)
-    - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks (`0 < q <= 1`)
-    - `"RangeUpperTailMean:lo:hi"`: equal-weight band inside the upper tail after dropping approximately the top `lo` fraction and keeping through the `hi` upper-tail cutoff (`0 <= lo < hi <= 1`)
-    - `"RangeLowerTailMean:lo:hi"`: equal-weight band inside the lower tail, keeping the range between lower-tail fractions `lo` and `hi` (`0 <= lo < hi <= 1`)
-    - `"TrimmedMeanFrac:lo:hi"`: central trimmed mean after dropping approximately the top `lo` fraction and bottom `1 - hi` fraction (`0 <= lo < hi <= 1`)
-    - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at standard quantile `q in [0,1]`
+    - `"UpperTailMean:q"`: mean over top `ceil(q * floor(k))` ranks ($0 < q \le 1$)
+    - `"LowerTailMean:q"`: mean over bottom `ceil(q * floor(k))` ranks ($0 < q \le 1$)
+    - `"RangeUpperTailMean:lo:hi"`: equal-weight band inside the upper tail after dropping approximately the top `lo` fraction and keeping through the `hi` upper-tail cutoff ($0 \le lo < hi \le 1$)
+    - `"RangeLowerTailMean:lo:hi"`: equal-weight band inside the lower tail, keeping the range between lower-tail fractions `lo` and `hi` ($0 \le lo < hi \le 1$)
+    - `"TrimmedMeanFrac:lo:hi"`: central trimmed mean after dropping approximately the top `lo` fraction and bottom `1 - hi` fraction ($0 \le lo < hi \le 1$)
+    - `"HarrellDavis:q"` (alias `"HarrelDavis:q"`): Harrell–Davis quantile estimator at standard quantile $q \in [0,1]$
     - `"QuantileWeibull:q"` / `"QuantileHazen:q"` / `"QuantileBlom:q"`: Weibull (`a=0`), Hazen (`a=0.5`), and Blom (`a=3/8`) probability-plot quantile interpolation variants.
     - `"TopQuantile:q"`: top-tail Hazen quantile alias (equivalent to `TopQuantileHazen:q`).
-    - `"TopQuantileWeibull:q"` / `"TopQuantileHazen:q"` / `"TopQuantileBlom:q"`: top-tail versions of the three quantile variants (equivalent to using `1-q`).
+    - `"TopQuantileWeibull:q"` / `"TopQuantileHazen:q"` / `"TopQuantileBlom:q"`: top-tail versions of the three quantile variants (equivalent to using $1-q$).
     - `"GiniMeanDifference"` / `"GMD"`: sample Gini mean difference L-estimator
-    - `"LMoment:r"`: sample L-moment of order `r` (`1 <= r <= floor(k)`)
-- known-`(r,p)` order-stat methods:
+    - `"LMoment:r"`: sample L-moment of order `r` ($1 \le r \le \lfloor k \rfloor$)
+- known-$(r,p)$ order-stat methods:
   - `orderstats_known_rp(r, p)`
   - `orderstats_inclusion_known_rp(r, p)`
   - `orderstats_advantage_known_rp(r, p, detach_advantage=True)`
-- known-`(r,p)` L-stat methods:
+- known-$(r,p)$ L-stat methods:
   - `lstat_known_rp(r, p, a)`
   - `lstat_inclusion_known_rp(r, p, a)`
   - `lstat_advantage_known_rp(r, p, a, detach_advantage=True)`
@@ -256,7 +256,7 @@ pytest -m jax
 
 ## Limitations / assumptions
 
-- Known-`(r,p)` formulas assume i.i.d. sampling with replacement from the specified discrete distribution.
+- Known-$(r,p)$ formulas assume i.i.d. sampling with replacement from the specified discrete distribution.
 - Batch transforms assume uniform subset sampling without replacement within the realized batch.
 - Gradients wrt values are piecewise-constant away from ties (stable sorting is used).
 
