@@ -101,7 +101,7 @@ loss.backward()
 optimizer.step()
 ```
 
-For multiple independent groups, precompute the OrderGrad transform once for the shared group size and reuse it for every group. Then compute rank advantages separately within each group and average the losses. Do not mix prompts, tasks, states, or contexts unless the rewards are meant to be ranked against each other.
+For multiple independent groups, precompute the OrderGrad transform once for the shared group size and reuse it for every group (or better, precompute it and reuse the same one across different optimization iterations). Then compute rank advantages separately within each group and average the losses. Do not mix prompts, tasks, states, or contexts unless the rewards are meant to be ranked against each other.
 
 ```python
 def ordergrad_pg_loss(logp_groups, reward_groups, *, K=4, objective="TopM:2"):
